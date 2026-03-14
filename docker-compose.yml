@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: socialhub
+      POSTGRES_USER: socialhub
+      POSTGRES_PASSWORD: socialhub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/sql/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgres://socialhub:socialhub@postgres:5432/socialhub
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: change-me
+      TOKEN_ENCRYPTION_SECRET: "01234567890123456789012345678901"
+      APP_BASE_URL: http://localhost:4000
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  worker:
+    build:
+      context: ./worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://socialhub:socialhub@postgres:5432/socialhub
+      REDIS_URL: redis://redis:6379
+      BACKEND_URL: http://backend:4000
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    volumes:
+      - ./worker:/app
+      - /app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
