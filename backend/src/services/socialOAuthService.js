@@ -1,8 +1,6 @@
 const { normalizePlatform } = require("../utils/platforms");
 const { fetchJson } = require("../utils/http");
 const {
-  createCodeVerifier,
-  createCodeChallenge,
   createOAuthState,
   verifyOAuthState
 } = require("../utils/oauthState");
@@ -11,13 +9,6 @@ const META_API_VERSION = process.env.META_API_VERSION || "v23.0";
 const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202502";
 
 const PROVIDERS = {
-  twitter: {
-    clientId: process.env.TWITTER_CLIENT_ID,
-    clientSecret: process.env.TWITTER_CLIENT_SECRET,
-    authorizationUrl: "https://twitter.com/i/oauth2/authorize",
-    tokenUrl: "https://api.x.com/2/oauth2/token",
-    scopes: ["tweet.read", "tweet.write", "users.read", "offline.access"]
-  },
   linkedin: {
     clientId: process.env.LINKEDIN_CLIENT_ID,
     clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
@@ -43,6 +34,7 @@ const PROVIDERS = {
     authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     scopes: [
+      "https://www.googleapis.com/auth/youtube.readonly",
       "https://www.googleapis.com/auth/youtube.upload",
       "https://www.googleapis.com/auth/userinfo.profile"
     ]
@@ -58,7 +50,16 @@ function getProvider(platform) {
   }
 
   if (!provider.clientId) {
-    throw new Error(`Missing OAuth client ID for ${normalizedPlatform}`);
+    throw new Error(
+      `Missing OAuth client ID for ${normalizedPlatform}. Set ${normalizedPlatform.toUpperCase()}_CLIENT_ID in backend/.env`
+    );
+  }
+
+  // Token exchanges require a client secret for these providers.
+  if (!provider.clientSecret) {
+    throw new Error(
+      `Missing OAuth client secret for ${normalizedPlatform}. Set ${normalizedPlatform.toUpperCase()}_CLIENT_SECRET in backend/.env`
+    );
   }
 
   return { ...provider, platform: normalizedPlatform };
@@ -67,14 +68,6 @@ function getProvider(platform) {
 function getRedirectUri(platform) {
   const baseUrl = process.env.APP_BASE_URL || "http://localhost:4000";
   return `${baseUrl}/api/social-accounts/oauth/${platform}/callback`;
-}
-
-function buildBasicAuth(clientId, clientSecret) {
-  if (!clientId || !clientSecret) {
-    return null;
-  }
-
-  return Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 }
 
 function buildFrontendRedirectUrl(platform, status, message) {
@@ -90,6 +83,13 @@ function buildFrontendRedirectUrl(platform, status, message) {
   return url.toString();
 }
 
+function buildFrontendConnectCallbackUrl(sessionId) {
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+  const url = new URL("/connect/callback", frontendUrl);
+  url.searchParams.set("session", sessionId);
+  return url.toString();
+}
+
 function getExpiry(expiresIn) {
   if (!expiresIn) {
     return null;
@@ -98,12 +98,13 @@ function getExpiry(expiresIn) {
   return new Date(Date.now() + Number(expiresIn) * 1000).toISOString();
 }
 
-async function startAuthorization({ platform, userId }) {
+async function startAuthorization({ platform, userId, clientId }) {
   const provider = getProvider(platform);
   const redirectUri = getRedirectUri(provider.platform);
   const statePayload = {
     platform: provider.platform,
-    userId
+    userId,
+    clientId: clientId || null
   };
 
   const params = new URLSearchParams({
@@ -113,13 +114,6 @@ async function startAuthorization({ platform, userId }) {
     scope: provider.scopes.join(" "),
     state: ""
   });
-
-  if (provider.platform === "twitter") {
-    const codeVerifier = createCodeVerifier();
-    statePayload.codeVerifier = codeVerifier;
-    params.set("code_challenge", createCodeChallenge(codeVerifier));
-    params.set("code_challenge_method", "S256");
-  }
 
   if (provider.platform === "youtube") {
     params.set("access_type", "offline");
@@ -139,31 +133,6 @@ async function startAuthorization({ platform, userId }) {
 }
 
 async function exchangeCodeForToken(provider, code, redirectUri, statePayload) {
-  if (provider.platform === "twitter") {
-    const body = new URLSearchParams({
-      code,
-      grant_type: "authorization_code",
-      client_id: provider.clientId,
-      redirect_uri: redirectUri,
-      code_verifier: statePayload.codeVerifier
-    });
-
-    const headers = {
-      "Content-Type": "application/x-www-form-urlencoded"
-    };
-
-    const basicAuth = buildBasicAuth(provider.clientId, provider.clientSecret);
-    if (basicAuth) {
-      headers.Authorization = `Basic ${basicAuth}`;
-    }
-
-    return fetchJson(provider.tokenUrl, {
-      method: "POST",
-      headers,
-      body: body.toString()
-    });
-  }
-
   if (provider.platform === "linkedin") {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
@@ -214,18 +183,6 @@ async function exchangeCodeForToken(provider, code, redirectUri, statePayload) {
 }
 
 async function resolveAccountProfile(provider, accessToken) {
-  if (provider.platform === "twitter") {
-    const profile = await fetchJson("https://api.x.com/2/users/me?user.fields=name,username", {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
-    });
-
-    return {
-      accountName: profile.data?.username || profile.data?.name || "twitter-account"
-    };
-  }
-
   if (provider.platform === "linkedin") {
     const profile = await fetchJson("https://api.linkedin.com/v2/userinfo", {
       headers: {
@@ -234,7 +191,8 @@ async function resolveAccountProfile(provider, accessToken) {
     });
 
     return {
-      accountName: profile.name || profile.localizedFirstName || profile.email || "linkedin-account"
+      accountName: profile.name || profile.localizedFirstName || profile.email || "linkedin-account",
+      providerAccountId: profile.sub || profile.email || "linkedin"
     };
   }
 
@@ -249,7 +207,8 @@ async function resolveAccountProfile(provider, accessToken) {
     }
 
     return {
-      accountName: page.instagram_business_account.username || page.name || "instagram-account"
+      accountName: page.instagram_business_account.username || page.name || "instagram-account",
+      providerAccountId: page.instagram_business_account.id
     };
   }
 
@@ -261,8 +220,70 @@ async function resolveAccountProfile(provider, accessToken) {
     });
 
     return {
-      accountName: profile.name || profile.email || "youtube-account"
+      accountName: profile.name || profile.email || "youtube-account",
+      providerAccountId: profile.sub || profile.email || "youtube"
     };
+  }
+
+  throw new Error(`Unsupported platform: ${provider.platform}`);
+}
+
+async function listConnectableProfiles(provider, accessToken) {
+  // Keep this minimal and reliable. We return an array even if we can only detect one profile.
+  if (provider.platform === "linkedin") {
+    const profile = await resolveAccountProfile(provider, accessToken);
+    return [
+      {
+        providerAccountId: profile.providerAccountId,
+        accountName: profile.accountName,
+        kind: "member"
+      }
+    ];
+  }
+
+  if (provider.platform === "instagram") {
+    const profile = await resolveAccountProfile(provider, accessToken);
+    return [
+      {
+        providerAccountId: profile.providerAccountId,
+        accountName: profile.accountName,
+        kind: "business_account"
+      }
+    ];
+  }
+
+  if (provider.platform === "youtube") {
+    // Try to enumerate the channel (requires YouTube Data API access). If it fails, fall back to userinfo identity.
+    try {
+      const channels = await fetchJson(
+        "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
+      );
+
+      const items = channels.items || [];
+      if (items.length) {
+        return items.map((item) => ({
+          providerAccountId: item.id,
+          accountName: item.snippet?.title || "youtube-channel",
+          kind: "channel"
+        }));
+      }
+    } catch (_error) {
+      // TODO: If we expand scopes later (youtube.readonly), channel enumeration becomes more reliable.
+    }
+
+    const profile = await resolveAccountProfile(provider, accessToken);
+    return [
+      {
+        providerAccountId: profile.providerAccountId,
+        accountName: profile.accountName,
+        kind: "user"
+      }
+    ];
   }
 
   throw new Error(`Unsupported platform: ${provider.platform}`);
@@ -282,7 +303,9 @@ async function completeAuthorization({ platform, code, state }) {
 
   return {
     userId: statePayload.userId,
+    clientId: statePayload.clientId || null,
     platform: provider.platform,
+    providerAccountId: profile.providerAccountId,
     accessToken: tokenResponse.access_token,
     refreshToken: tokenResponse.refresh_token,
     expiry: getExpiry(tokenResponse.expires_in),
@@ -292,8 +315,10 @@ async function completeAuthorization({ platform, code, state }) {
 
 module.exports = {
   buildFrontendRedirectUrl,
+  buildFrontendConnectCallbackUrl,
   completeAuthorization,
   getProvider,
+  listConnectableProfiles,
   startAuthorization,
   getRedirectUri,
   LINKEDIN_VERSION,

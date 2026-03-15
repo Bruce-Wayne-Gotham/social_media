@@ -9,13 +9,6 @@ function adaptPost(post, platform) {
   const hashtags = normalizeHashtags(post.hashtags);
   const hashtagSuffix = hashtags.length ? `\n\n${hashtags.map((tag) => `#${tag}`).join(" ")}` : "";
 
-  if (platform === "twitter") {
-    return {
-      text: `${post.content}${hashtagSuffix}`.slice(0, 280),
-      mediaUrl: post.media_url || null
-    };
-  }
-
   if (platform === "linkedin") {
     return {
       text: `${post.content}${hashtagSuffix}`.trim(),

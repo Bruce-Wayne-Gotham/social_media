@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiRequest } from "@/src/lib/api";
 
+const PASSWORD_HELP_TEXT =
+  "At least 8 chars, with minimum one uppercase, lowercase, number, and special character.";
+
 export function AuthForm() {
   const router = useRouter();
   const [mode, setMode] = useState("login");
@@ -51,14 +54,25 @@ export function AuthForm() {
           onChange={(event) => setForm({ ...form, email: event.target.value })}
           required
         />
-        <input
-          className="w-full rounded-2xl border border-[var(--line)] bg-white/70 px-4 py-3 outline-none"
-          type="password"
-          placeholder="Password"
-          value={form.password}
-          onChange={(event) => setForm({ ...form, password: event.target.value })}
-          required
-        />
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs uppercase tracking-[0.24em] text-[var(--muted)]">Password</span>
+            <span
+              className="cursor-help select-none rounded-full border border-[var(--line)] bg-white/70 px-2 py-0.5 text-xs text-[var(--muted)]"
+              title={PASSWORD_HELP_TEXT}
+            >
+              *
+            </span>
+          </div>
+          <input
+            className="w-full rounded-2xl border border-[var(--line)] bg-white/70 px-4 py-3 outline-none"
+            type="password"
+            placeholder="Password"
+            value={form.password}
+            onChange={(event) => setForm({ ...form, password: event.target.value })}
+            required
+          />
+        </div>
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button
           className="w-full rounded-2xl bg-[var(--accent)] px-4 py-3 text-white transition hover:bg-[var(--accent-dark)] disabled:opacity-60"

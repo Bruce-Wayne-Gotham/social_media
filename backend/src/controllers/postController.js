@@ -1,4 +1,4 @@
-const { createPostSchema } = require("../validators/postValidators");
+const { createPostSchema, updatePostSchema } = require("../validators/postValidators");
 const postService = require("../services/postService");
 
 async function listPosts(req, res, next) {
@@ -35,6 +35,15 @@ async function getPost(req, res, next) {
 module.exports = {
   listPosts,
   createPost,
-  getPost
+  getPost,
+  async updatePost(req, res, next) {
+    try {
+      const patch = updatePostSchema.parse(req.body);
+      const post = await postService.updatePost(req.user.sub, req.params.id, patch);
+      res.json({ post });
+    } catch (error) {
+      next(error);
+    }
+  }
 };
 

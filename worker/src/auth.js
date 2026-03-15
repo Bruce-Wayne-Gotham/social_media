@@ -9,14 +9,6 @@ function shouldRefresh(expiry) {
   return Date.now() + 60_000 >= new Date(expiry).getTime();
 }
 
-function buildBasicAuth(clientId, clientSecret) {
-  if (!clientId || !clientSecret) {
-    return null;
-  }
-
-  return Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-}
-
 function getExpiry(expiresIn, fallbackExpiry) {
   if (!expiresIn) {
     return fallbackExpiry || null;
@@ -40,34 +32,6 @@ async function updateAccountTokens(client, target, tokens) {
       tokens.expiry
     ]
   );
-}
-
-async function refreshTwitterToken(target, refreshToken) {
-  const body = new URLSearchParams({
-    refresh_token: refreshToken,
-    grant_type: "refresh_token",
-    client_id: process.env.TWITTER_CLIENT_ID
-  });
-  const headers = {
-    "Content-Type": "application/x-www-form-urlencoded"
-  };
-  const basicAuth = buildBasicAuth(process.env.TWITTER_CLIENT_ID, process.env.TWITTER_CLIENT_SECRET);
-
-  if (basicAuth) {
-    headers.Authorization = `Basic ${basicAuth}`;
-  }
-
-  const payload = await fetchJson("https://api.x.com/2/oauth2/token", {
-    method: "POST",
-    headers,
-    body: body.toString()
-  });
-
-  return {
-    accessToken: payload.access_token,
-    refreshToken: payload.refresh_token || refreshToken,
-    expiry: getExpiry(payload.expires_in, target.expiry)
-  };
 }
 
 async function refreshLinkedInToken(target, refreshToken) {
@@ -128,9 +92,7 @@ async function refreshAccessToken(client, target, accessToken) {
   const refreshToken = decrypt(target.refresh_token);
   let nextTokens;
 
-  if (target.platform === "twitter") {
-    nextTokens = await refreshTwitterToken(target, refreshToken);
-  } else if (target.platform === "linkedin") {
+  if (target.platform === "linkedin") {
     nextTokens = await refreshLinkedInToken(target, refreshToken);
   } else if (target.platform === "youtube") {
     nextTokens = await refreshYoutubeToken(target, refreshToken);

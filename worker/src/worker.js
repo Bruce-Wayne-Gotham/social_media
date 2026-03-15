@@ -6,7 +6,6 @@ const { Pool } = require("pg");
 const { adaptPost } = require("./platformAdapters");
 const { resolveAccessToken } = require("./auth");
 const {
-  publishTwitterPost,
   publishLinkedInPost,
   publishInstagramPost,
   publishYoutubeMetadata
@@ -20,12 +19,43 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function backoffDelayMs(attempt) {
+  // attempt: 1..N
+  const base = Number(process.env.PUBLISH_RETRY_BASE_MS || 1000);
+  // Exponential backoff: 1s, 2s, 4s (default)
+  return base * Math.pow(2, Math.max(0, attempt - 1));
+}
+
+async function publishWithRetries({ platform, publishFn, maxAttempts = 3 }) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await publishFn();
+    } catch (error) {
+      lastError = error;
+      const isLast = attempt === maxAttempts;
+      if (isLast) break;
+
+      const delay = backoffDelayMs(attempt);
+      console.warn(`Publish attempt ${attempt}/${maxAttempts} failed for ${platform}. Retrying in ${delay}ms...`);
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+}
+
 async function publishPost(postId) {
   const client = await pool.connect();
 
   try {
     const postResult = await client.query(
-      `SELECT id, user_id, content, media_url, hashtags
+      `SELECT id, user_id, client_id, content, media_url, hashtags, approval_status, status
        FROM posts
        WHERE id = $1`,
       [postId]
@@ -37,6 +67,15 @@ async function publishPost(postId) {
 
     const post = postResult.rows[0];
 
+    if (post.approval_status !== "approved") {
+      throw new Error("Post is not approved for publishing");
+    }
+
+    if (post.status === "published") {
+      // Best-effort idempotency: if a post is already marked published, do not re-publish.
+      return;
+    }
+
     await client.query("UPDATE posts SET status = 'publishing', updated_at = NOW() WHERE id = $1", [postId]);
 
     const targetsResult = await client.query(
@@ -45,19 +84,39 @@ async function publishPost(postId) {
               sa.id AS social_account_id,
               sa.access_token,
               sa.refresh_token,
-              sa.expiry
+              sa.expiry,
+              pt.publish_status,
+              pt.external_post_id
        FROM post_targets pt
-       LEFT JOIN social_accounts sa
-         ON sa.user_id = $1 AND sa.platform = pt.platform
+       LEFT JOIN LATERAL (
+         SELECT id, access_token, refresh_token, expiry
+         FROM social_accounts
+         WHERE client_id = $1
+           AND (
+             (pt.social_account_id IS NOT NULL AND id = pt.social_account_id)
+             OR (pt.social_account_id IS NULL AND platform = pt.platform)
+           )
+         ORDER BY updated_at DESC
+         LIMIT 1
+       ) sa ON true
        WHERE pt.post_id = $2`,
-      [post.user_id, postId]
+      [post.client_id, postId]
     );
 
     for (const target of targetsResult.rows) {
+      if (target.publish_status === "published") {
+        // Already completed from a prior run (best-effort idempotency).
+        continue;
+      }
+
       try {
         const payload = adaptPost(post, target.platform);
         const accessToken = await resolveAccessToken(client, target);
-        const result = await dispatchPublisher(target.platform, { accessToken, payload });
+        const result = await publishWithRetries({
+          platform: target.platform,
+          maxAttempts: Number(process.env.PUBLISH_RETRY_ATTEMPTS || 3),
+          publishFn: async () => dispatchPublisher(target.platform, { accessToken, payload })
+        });
 
         await client.query(
           `UPDATE post_targets
@@ -87,9 +146,6 @@ async function publishPost(postId) {
 }
 
 async function dispatchPublisher(platform, context) {
-  if (platform === "twitter") {
-    return publishTwitterPost(context);
-  }
   if (platform === "linkedin") {
     return publishLinkedInPost(context);
   }

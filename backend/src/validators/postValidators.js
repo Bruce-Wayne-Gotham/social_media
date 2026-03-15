@@ -14,6 +14,15 @@ const createPostSchema = z.object({
   platforms: z.array(platformSchema).min(1)
 });
 
+const updatePostSchema = z.object({
+  content: z.string().min(1).max(5000).optional(),
+  mediaUrl: z.string().url().optional().or(z.literal("")),
+  hashtags: z.array(z.string().min(1)).optional(),
+  scheduledTime: z.string().datetime().optional().nullable(),
+  platforms: z.array(platformSchema).min(1).optional()
+});
+
 module.exports = {
-  createPostSchema
+  createPostSchema,
+  updatePostSchema
 };

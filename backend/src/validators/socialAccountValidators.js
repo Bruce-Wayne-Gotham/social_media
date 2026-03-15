@@ -3,6 +3,7 @@ const { normalizePlatform, SUPPORTED_PLATFORMS } = require("../utils/platforms")
 
 const connectAccountSchema = z.object({
   platform: z.preprocess(normalizePlatform, z.enum(SUPPORTED_PLATFORMS)),
+  providerAccountId: z.string().min(1).optional(),
   accessToken: z.string().min(1),
   refreshToken: z.string().optional(),
   accountName: z.string().optional(),

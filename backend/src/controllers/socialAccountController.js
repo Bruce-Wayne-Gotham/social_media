@@ -2,9 +2,12 @@ const { connectAccountSchema } = require("../validators/socialAccountValidators"
 const socialAccountService = require("../services/socialAccountService");
 const {
   buildFrontendRedirectUrl,
+  buildFrontendConnectCallbackUrl,
   completeAuthorization,
+  listConnectableProfiles,
   startAuthorization
 } = require("../services/socialOAuthService");
+const oauthConnectSessionService = require("../services/oauthConnectSessionService");
 
 async function listAccounts(req, res, next) {
   try {
@@ -50,9 +53,22 @@ async function completeOAuth(req, res) {
     }
 
     const payload = await completeAuthorization({ platform, code, state });
-    await socialAccountService.upsertSocialAccount(payload.userId, payload);
+    const candidates = await listConnectableProfiles(
+      { platform: payload.platform },
+      payload.accessToken
+    );
 
-    res.redirect(buildFrontendRedirectUrl(platform, "success"));
+    const session = await oauthConnectSessionService.createSession({
+      userId: payload.userId,
+      clientId: payload.clientId,
+      platform: payload.platform,
+      accessToken: payload.accessToken,
+      refreshToken: payload.refreshToken,
+      expiry: payload.expiry,
+      candidates
+    });
+
+    res.redirect(buildFrontendConnectCallbackUrl(session.id));
   } catch (error) {
     console.error(error);
     res.redirect(buildFrontendRedirectUrl(platform, "error", error.message));

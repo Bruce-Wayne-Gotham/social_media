@@ -4,13 +4,12 @@ import { useState } from "react";
 import { apiRequest } from "@/src/lib/api";
 
 const platforms = [
-  { id: "twitter", label: "X / Twitter" },
   { id: "linkedin", label: "LinkedIn" },
   { id: "instagram", label: "Instagram" },
   { id: "youtube", label: "YouTube" }
 ];
 
-export function ConnectAccounts({ accounts = [] }) {
+export function ConnectAccounts({ accounts = [], clientId = "", onRefresh }) {
   const [busyPlatform, setBusyPlatform] = useState("");
   const [error, setError] = useState("");
 
@@ -19,12 +18,30 @@ export function ConnectAccounts({ accounts = [] }) {
     setError("");
 
     try {
-      const { authUrl } = await apiRequest(`/social-accounts/oauth/${platform}/start`);
+      const authUrlPath = platformStartPath(platform);
+      const { authUrl } = await apiRequest(authUrlPath);
       window.location.assign(authUrl);
     } catch (connectError) {
       setError(connectError.message);
       setBusyPlatform("");
     }
+  }
+
+  async function handleDisconnect(socialProfileId) {
+    setError("");
+    try {
+      await apiRequest(`/social-profiles/${socialProfileId}`, { method: "DELETE" });
+      await onRefresh?.();
+    } catch (disconnectError) {
+      setError(disconnectError.message);
+    }
+  }
+
+  function platformStartPath(platform) {
+    if (clientId) {
+      return `/clients/${clientId}/social-profiles/oauth/${platform}/start`;
+    }
+    return `/social-accounts/oauth/${platform}/start`;
   }
 
   return (
@@ -35,7 +52,7 @@ export function ConnectAccounts({ accounts = [] }) {
       </div>
       <div className="space-y-3">
         {platforms.map((platform) => {
-          const connected = accounts.find((account) => account.platform === platform.id);
+          const connected = accounts.filter((account) => account.platform === platform.id);
           return (
             <div
               className="flex items-center justify-between rounded-2xl border border-[var(--line)] bg-white/60 p-4"
@@ -44,8 +61,29 @@ export function ConnectAccounts({ accounts = [] }) {
               <div>
                 <p className="font-semibold">{platform.label}</p>
                 <p className="text-sm text-[var(--muted)]">
-                  {connected ? `Connected as ${connected.account_name || "account"}` : "Not connected"}
+                  {connected.length
+                    ? `Connected (${connected.length})`
+                    : "Not connected"}
                 </p>
+                {connected.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {connected.map((profile) => (
+                      <span
+                        className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-white/70 px-3 py-1 text-xs"
+                        key={profile.id}
+                      >
+                        {profile.account_name || profile.provider_account_id || "profile"}
+                        <button
+                          className="underline"
+                          type="button"
+                          onClick={() => handleDisconnect(profile.id)}
+                        >
+                          Disconnect
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <button
                 className="rounded-full border border-[var(--line)] px-4 py-2 text-sm"
@@ -53,7 +91,7 @@ export function ConnectAccounts({ accounts = [] }) {
                 onClick={() => handleConnect(platform.id)}
                 disabled={busyPlatform === platform.id}
               >
-                {busyPlatform === platform.id ? "Redirecting..." : connected ? "Reconnect" : "Connect"}
+                {busyPlatform === platform.id ? "Redirecting..." : connected.length ? "Connect another" : "Connect"}
               </button>
             </div>
           );

@@ -11,11 +11,17 @@ export async function apiRequest(path, options = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    cache: "no-store"
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store"
+    });
+  } catch (_error) {
+    // Browser surfaces CORS / connection issues as a generic "Failed to fetch".
+    throw new Error(`Unable to reach API at ${API_BASE_URL}. Is the backend running?`);
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

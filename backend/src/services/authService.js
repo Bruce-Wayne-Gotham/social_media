@@ -1,7 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
-const { query } = require("../config/db");
+const { pool, query } = require("../config/db");
 const { httpError } = require("../utils/httpError");
 
 async function register({ email, password }) {
@@ -11,14 +11,56 @@ async function register({ email, password }) {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const result = await query(
-    `INSERT INTO users (email, password_hash)
-     VALUES ($1, $2)
-     RETURNING id, email, created_at`,
-    [email, passwordHash]
-  );
+  const client = await pool.connect();
 
-  return issueToken(result.rows[0]);
+  try {
+    await client.query("BEGIN");
+
+    const userResult = await client.query(
+      `INSERT INTO users (email, password_hash)
+       VALUES ($1, $2)
+       RETURNING id, email, created_at`,
+      [email, passwordHash]
+    );
+    const user = userResult.rows[0];
+
+    const workspaceResult = await client.query(
+      `INSERT INTO workspaces (name, created_by)
+       VALUES ($1, $2)
+       RETURNING id`,
+      ["My Workspace", user.id]
+    );
+    const workspaceId = workspaceResult.rows[0].id;
+
+    await client.query(
+      `INSERT INTO workspace_members (workspace_id, user_id, role)
+       VALUES ($1, $2, $3)`,
+      [workspaceId, user.id, "owner"]
+    );
+
+    const clientResult = await client.query(
+      `INSERT INTO clients (workspace_id, name)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [workspaceId, "Default Client"]
+    );
+    const defaultClientId = clientResult.rows[0].id;
+
+    await client.query(
+      `UPDATE users
+       SET default_workspace_id = $2, default_client_id = $3
+       WHERE id = $1`,
+      [user.id, workspaceId, defaultClientId]
+    );
+
+    await client.query("COMMIT");
+    return issueToken(user);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function login({ email, password }) {
@@ -42,10 +84,19 @@ async function login({ email, password }) {
 
 async function getUserById(userId) {
   const result = await query(
-    "SELECT id, email, created_at FROM users WHERE id = $1",
+    "SELECT id, email, default_workspace_id, default_client_id, created_at FROM users WHERE id = $1",
     [userId]
   );
-  return result.rows[0] || null;
+  const user = result.rows[0];
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    defaultWorkspaceId: user.default_workspace_id,
+    defaultClientId: user.default_client_id,
+    createdAt: user.created_at
+  };
 }
 
 function issueToken(user) {

@@ -4,18 +4,17 @@ import { useState } from "react";
 import { apiRequest } from "@/src/lib/api";
 
 const platformOptions = [
-  { value: "twitter", label: "X" },
   { value: "linkedin", label: "LinkedIn" },
   { value: "instagram", label: "Instagram" },
   { value: "youtube", label: "YouTube" }
 ];
 
-export function PostComposer({ onCreated }) {
+export function PostComposer({ clientId = "", onCreated }) {
   const [content, setContent] = useState("");
   const [mediaUrl, setMediaUrl] = useState("");
   const [hashtags, setHashtags] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
-  const [platforms, setPlatforms] = useState(["twitter", "linkedin"]);
+  const [platforms, setPlatforms] = useState(["linkedin"]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -33,7 +32,11 @@ export function PostComposer({ onCreated }) {
     setError("");
 
     try {
-      await apiRequest("/posts", {
+      if (!clientId || clientId === "all") {
+        throw new Error("Select a client before creating a post.");
+      }
+
+      await apiRequest(`/clients/${clientId}/posts`, {
         method: "POST",
         body: JSON.stringify({
           content,
@@ -111,11 +114,14 @@ export function PostComposer({ onCreated }) {
         {error ? <p className="text-sm text-red-600">{error}</p> : null}
         <button
           className="rounded-2xl bg-[var(--accent)] px-5 py-3 text-white disabled:opacity-60"
-          disabled={submitting}
+          disabled={submitting || !clientId || clientId === "all"}
           type="submit"
         >
           {submitting ? "Saving..." : "Create post"}
         </button>
+        {!clientId || clientId === "all" ? (
+          <p className="text-xs text-[var(--muted)]">Select a specific client to compose a post.</p>
+        ) : null}
       </form>
     </section>
   );

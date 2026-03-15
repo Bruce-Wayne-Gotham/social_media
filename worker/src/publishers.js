@@ -24,23 +24,6 @@ function guessContentType(url) {
   return "application/octet-stream";
 }
 
-async function publishTwitterPost({ accessToken, payload }) {
-  const result = await fetchJson("https://api.x.com/2/tweets", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      text: payload.text
-    })
-  });
-
-  return {
-    externalPostId: result.data?.id || `twitter_${Date.now()}`
-  };
-}
-
 async function publishLinkedInPost({ accessToken, payload }) {
   const profile = await fetchJson("https://api.linkedin.com/v2/userinfo", {
     headers: {
@@ -219,7 +202,6 @@ async function publishYoutubeMetadata({ accessToken, payload }) {
 }
 
 module.exports = {
-  publishTwitterPost,
   publishLinkedInPost,
   publishInstagramPost,
   publishYoutubeMetadata

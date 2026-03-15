@@ -1,4 +1,4 @@
-export function PostList({ posts = [] }) {
+export function PostList({ posts = [], clientsById = {} }) {
   return (
     <section className="rounded-[2rem] border border-[var(--line)] bg-[var(--surface)] p-6">
       <div className="mb-4">
@@ -13,6 +13,12 @@ export function PostList({ posts = [] }) {
           posts.map((post) => (
             <article className="rounded-2xl border border-[var(--line)] bg-white/60 p-4" key={post.id}>
               <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
+                {clientsById[post.client_id] ? <span>{clientsById[post.client_id]}</span> : null}
+                {post.approval_status ? (
+                  <span className="rounded-full border border-[var(--line)] bg-white/70 px-3 py-1">
+                    {post.approval_status}
+                  </span>
+                ) : null}
                 <span>{post.status}</span>
                 <span>{new Date(post.created_at).toLocaleString()}</span>
                 {post.scheduled_time ? <span>Scheduled: {new Date(post.scheduled_time).toLocaleString()}</span> : null}
@@ -22,7 +28,7 @@ export function PostList({ posts = [] }) {
                 {post.targets.map((target) => (
                   <span
                     className="rounded-full border border-[var(--line)] px-3 py-1"
-                    key={`${post.id}-${target.platform}`}
+                    key={`${post.id}-${target.platform}-${target.socialAccountId || "legacy"}`}
                   >
                     {target.platform}: {target.publishStatus}
                   </span>
