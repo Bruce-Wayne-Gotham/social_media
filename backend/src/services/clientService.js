@@ -1,21 +1,39 @@
 const { query } = require("../config/db");
 const { httpError } = require("../utils/httpError");
-const { assertWorkspaceMember } = require("./workspaceService");
+const { assertClientAccess, getWorkspaceMemberRecord } = require("./accessService");
 
 async function listClients(userId, workspaceId) {
-  await assertWorkspaceMember(userId, workspaceId);
+  const membership = await getWorkspaceMemberRecord(userId, workspaceId);
+  if (!membership) {
+    throw httpError("Not a workspace member", 403);
+  }
+
+  const params = [workspaceId, userId];
+  const assignmentFilter = membership.role === "client_approver"
+    ? `AND EXISTS (
+         SELECT 1
+         FROM client_approver_assignments ca
+         WHERE ca.client_id = c.id AND ca.user_id = $2
+       )`
+    : "";
+
   const result = await query(
     `SELECT id, workspace_id, name, created_at, updated_at
-     FROM clients
+     FROM clients c
      WHERE workspace_id = $1
+     ${assignmentFilter}
      ORDER BY created_at DESC`,
-    [workspaceId]
+    params
   );
   return result.rows;
 }
 
 async function createClient(userId, workspaceId, { name }) {
-  await assertWorkspaceMember(userId, workspaceId);
+  const membership = await getWorkspaceMemberRecord(userId, workspaceId);
+  if (!membership) {
+    throw httpError("Not a workspace member", 403);
+  }
+
   const result = await query(
     `INSERT INTO clients (workspace_id, name)
      VALUES ($1, $2)
@@ -26,12 +44,12 @@ async function createClient(userId, workspaceId, { name }) {
 }
 
 async function getClient(userId, clientId) {
+  await assertClientAccess(userId, clientId);
   const result = await query(
-    `SELECT c.id, c.workspace_id, c.name, c.created_at, c.updated_at
-     FROM clients c
-     JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
-     WHERE c.id = $1 AND wm.user_id = $2`,
-    [clientId, userId]
+    `SELECT id, workspace_id, name, created_at, updated_at
+     FROM clients
+     WHERE id = $1`,
+    [clientId]
   );
   return result.rows[0] || null;
 }
@@ -71,4 +89,3 @@ module.exports = {
   listClients,
   updateClient
 };
-

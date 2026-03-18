@@ -24,6 +24,9 @@ Workspaces:
   - returns: `{ "workspace": { "id", "name", "role", "created_at" } }`
 - `GET /workspaces/current`
   - returns: `{ "workspace": { "id", "name", "role", "created_at" } | null }`
+- `PATCH /workspaces/current`
+  - body: `{ "workspaceId": "<uuid>" }`
+  - returns: `{ "workspace": { "id", "name", "role", "created_at" } }`
 - `GET /workspaces/:workspaceId/clients`
   - returns: `{ "clients": [{ "id", "workspace_id", "name", "created_at", "updated_at" }] }`
 - `POST /workspaces/:workspaceId/clients`
@@ -38,6 +41,33 @@ Clients:
   - returns: `{ "client": { ... } }`
 - `DELETE /clients/:clientId`
   - returns: `{ "ok": true }`
+- `GET /clients/:clientId/media-assets`
+  - returns: `{ "assets": [{ "id", "client_id", "original_filename", "content_type", "file_size_bytes", "public_url", "status" }] }`
+- `POST /clients/:clientId/media-assets/upload-url`
+  - body: `{ "fileName": "asset.png", "contentType": "image/png", "fileSizeBytes": 12345 }`
+  - returns: `{ "assetId", "uploadUrl", "expiresAt", "maxBytes" }`
+- `GET /clients/:clientId/tracked-links`
+  - returns: `{ "links": [{ "id", "post_id", "original_url", "destination_url", "short_code", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "created_at", "click_count", "shortUrl" }] }`
+- `GET /clients/:clientId/tracked-links/report`
+  - returns: `{ "summary": { "totalLinks", "totalClicks" }, "byPost": [{ "postId", "totalClicks" }], "links": [...] }`
+- `POST /clients/:clientId/tracked-links`
+  - body: `{ "originalUrl": "https://example.com", "postId": "<uuid>|null", "utmSource": "instagram", "utmMedium": "social", "utmCampaign": "spring_launch", "utmContent": "reel_a", "utmTerm": "optional" }`
+  - returns: `{ "link": { "id", "client_id", "post_id", "original_url", "destination_url", "short_code", "shortUrl", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "created_by", "created_at" } }`
+- `POST /clients/:clientId/approval-links`
+  - body: `{ "label": "optional", "expiresInDays": 7 }`
+  - returns: `{ "approvalLink": { "url", "expiresAt", "clientId", "clientName" } }`
+
+Media Assets:
+- `PUT /media-assets/:assetId/upload?token=...`
+  - body: raw binary upload
+  - returns: `{ "asset": { "id", "public_url", "status" } }`
+- Static asset URLs are served from `/media/<storage_key>`
+
+Tracked Links:
+- `GET /tracked-links/:code/resolve`
+  - returns: `{ "url": "https://example.com?utm_source=..." }`
+- App short-link path: `/l/<code>`
+  - behavior: resolves the code, records a click event, and redirects to the stored destination URL
 
 Social Profiles:
 - `GET /clients/:clientId/social-profiles`
@@ -58,7 +88,7 @@ Posts (Client-scoped):
 - `GET /clients/:clientId/posts`
   - returns: `{ "posts": [...] }`
 - `POST /clients/:clientId/posts`
-  - body: `{ "content": "...", "mediaUrl": "", "hashtags": [], "scheduledTime": null, "platforms": ["linkedin"] }`
+  - body: `{ "content": "...", "mediaAssetId": "<uuid>|null", "mediaUrl": "", "hashtags": [], "scheduledTime": null, "platforms": ["linkedin"] }`
   - returns: `{ "post": { ... } }`
 
 Posts (Legacy + shared):
@@ -70,9 +100,24 @@ Posts (Legacy + shared):
 Approvals (Safe Mode):
 - `POST /posts/:id/request-approval`
   - body: `{ "note": "optional" }`
+- `POST /posts/:id/comments`
+  - body: `{ "note": "required" }`
+  - returns: `{ "post": { ..., "events": [...] } }`
 - `POST /posts/:id/approve`
   - body: `{ "note": "optional" }`
 - `POST /posts/:id/reject`
+  - body: `{ "note": "optional" }`
+
+Approval Magic Links:
+- `GET /approval-links/:token`
+  - returns: `{ "link": { "clientId", "clientName", "label", "expiresAt" }, "posts": [...] }`
+- `GET /approval-links/:token/posts/:postId`
+  - returns: `{ "link": { ... }, "post": { ..., "events": [...] } }`
+- `POST /approval-links/:token/posts/:postId/comments`
+  - body: `{ "note": "required" }`
+- `POST /approval-links/:token/posts/:postId/approve`
+  - body: `{ "note": "optional" }`
+- `POST /approval-links/:token/posts/:postId/reject`
   - body: `{ "note": "optional" }`
 
 Worker Retry Policy (Current Default):

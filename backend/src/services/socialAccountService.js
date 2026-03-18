@@ -2,6 +2,7 @@ const { query } = require("../config/db");
 const { encrypt } = require("../utils/crypto");
 const { normalizePlatform } = require("../utils/platforms");
 const { httpError } = require("../utils/httpError");
+const { assertClientAccess } = require("./accessService");
 
 async function getDefaultClientIdForUser(userId) {
   const result = await query("SELECT default_client_id FROM users WHERE id = $1", [userId]);
@@ -13,6 +14,8 @@ async function getDefaultClientIdForUser(userId) {
 }
 
 async function upsertSocialAccountForClient(userId, clientId, payload) {
+  await assertClientAccess(userId, clientId);
+
   const providerAccountId = payload.providerAccountId || payload.accountName;
   if (!providerAccountId) {
     throw httpError("Missing provider account identifier for social profile", 400);
@@ -62,17 +65,7 @@ async function getSocialAccountsByUser(userId) {
 }
 
 async function getSocialAccountsByClient(userId, clientId) {
-  // Simple authz: must be a member of the client's workspace.
-  const authz = await query(
-    `SELECT 1
-     FROM clients c
-     JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
-     WHERE c.id = $1 AND wm.user_id = $2`,
-    [clientId, userId]
-  );
-  if (authz.rowCount === 0) {
-    throw httpError("Client not found", 404);
-  }
+  await assertClientAccess(userId, clientId);
 
   const result = await query(
     `SELECT id, client_id, platform, provider_account_id, account_name, expiry, created_at, updated_at
@@ -88,10 +81,12 @@ async function disconnectSocialAccount(userId, socialAccountId) {
   const result = await query(
     `DELETE FROM social_accounts sa
      USING clients c, workspace_members wm
+     LEFT JOIN client_approver_assignments ca ON ca.client_id = c.id AND ca.user_id = wm.user_id
      WHERE sa.id = $1
        AND sa.client_id = c.id
        AND wm.workspace_id = c.workspace_id
        AND wm.user_id = $2
+       AND (wm.role <> 'client_approver' OR ca.client_id IS NOT NULL)
      RETURNING sa.id`,
     [socialAccountId, userId]
   );

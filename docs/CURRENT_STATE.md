@@ -6,16 +6,21 @@ This document describes what the app supports right now in this repository, what
 SocialHub is an agency-first social media management app foundation for:
 - Managing multiple clients (brands) inside a workspace (agency).
 - Connecting social profiles per client for LinkedIn, Instagram, and YouTube.
+- Uploading media assets per client and reusing them in post creation.
 - Creating posts for a client.
 - Safe Mode approvals: posts must be approved before they can be queued/published.
+- Tracking outbound links with UTM parameters and short links on the app domain.
 - Scheduling and publishing via a Redis/BullMQ worker.
 
 ## Agency User Journey (Current UX)
 1. Log in (a default workspace and client exist for new users).
 2. Create additional clients for each brand.
-3. Select a client to manage social profile connections.
-4. Switch to "All clients" to get a planning view of scheduled posts in the calendar.
-5. Create drafts per client and move them through approvals before publishing.
+3. Select a client to manage social profile connections, media assets, tracked links, and posts.
+4. Upload a file or paste a public media URL in the composer.
+5. Build a tracked link with UTM values and copy the app-domain short link.
+6. Switch to "All clients" to get a planning view of scheduled posts in the calendar.
+7. Review pending work in the approvals inbox, comment on the thread, and approve or reject from the post detail panel.
+8. Share a client approval magic link when an external reviewer should only see one client inbox.
 
 ## Supported Platforms
 - LinkedIn
@@ -26,10 +31,13 @@ SocialHub is an agency-first social media management app foundation for:
 - User: signs in via email/password and owns/joins workspaces.
 - Workspace: typically an agency container.
 - Client: a brand within a workspace.
+- Media Asset: an uploaded file tied to a workspace/client and reusable across posts.
 - Social Profile: a connected account/channel/page identity for a client.
   - Implementation note: social profiles are stored in the `social_accounts` table (legacy name) and referenced as `social_account_id`.
-- Post: content + media URL + hashtags + schedule time, scoped to a client.
+- Post: content + media asset/public media URL + hashtags + schedule time, scoped to a client.
 - Post Targets: per-platform rows tracking publish status per selected target.
+- Tracked Link: a client-owned short link with original URL, resolved destination URL, UTM fields, optional post association, and creator metadata.
+- Tracked Link Click: a basic click event row with referrer, user agent, and timestamp.
 - Approval Events: audit log for approval lifecycle.
 
 ## Current User Flows
@@ -49,17 +57,36 @@ SocialHub is an agency-first social media management app foundation for:
   - which detected profile(s) to connect (checkbox list)
 - On submit, the backend stores 1+ social profiles for that platform/client.
 
-3. Create post
+3. Upload media
+- From the composer, upload a file for the current client.
+- The backend creates a pending `media_assets` row and returns a signed one-time upload URL.
+- The frontend uploads the raw file to that URL and then shows the ready asset in the composer asset shelf.
+
+4. Create post
 - Create a post from the dashboard composer.
+- Posts can reference a `media_asset_id` or a direct `media_url`.
 - Posts are created as `status=draft` and `approval_status=draft` (Safe Mode).
 
-3a. Agency dashboard planning
+4a. Agency dashboard planning
 - Workspace switcher + client selector (includes an "All clients" planning view).
 - Create client from the dashboard.
 - Calendar view (week/month) shows scheduled posts and labels them by client.
 
-4. Approval + publishing
-- API supports requesting approval, approving, rejecting.
+4b. Link tracking
+- Link tracking panel is client-scoped.
+- Users can create a tracked link from an original URL plus optional UTM values.
+- If a post is currently selected in the dashboard, the new tracked link is associated to that post.
+- The panel shows the generated app-domain short link, supports copy-to-clipboard, and lists recent links with click counts.
+- Short links resolve through `/l/<code>` and store a click event before redirecting to the UTM-decorated destination URL.
+- Reporting currently shows total clicks by client and a basic click breakdown by post.
+
+4c. Approval review
+- Approvals inbox shows all posts in `needs_approval` for the current client selection.
+- Post detail panel shows the full approval thread, comments, and approve/reject actions.
+- Recent posts are selectable so creators and approvers can review the audit trail on any post.
+
+5. Approval + publishing
+- API supports requesting approval, commenting, approving, rejecting.
 - Only approval triggers enqueueing the worker job.
 - Worker refuses to publish if the post is not approved.
 - Worker resolves tokens by `post.client_id` and `post_targets.social_account_id` (social profile), not just by platform.
@@ -67,13 +94,13 @@ SocialHub is an agency-first social media management app foundation for:
 - Best-effort idempotency: already-published targets are skipped if they have an `external_post_id`.
 
 ## What Is NOT Implemented Yet (Known Gaps)
-- True multi-client UI (client switcher, client settings page, approvals inbox UI).
+- Client approver assignment management UI (permissions are enforced in the API, but assignment is still a data/admin task).
 - Selecting specific connected social profiles in the composer (currently targets default/latest profile per platform).
 - Robust page/channel enumeration for every provider edge case.
   - YouTube: best-effort channel enumeration, falls back to user identity.
   - LinkedIn: currently connects the member identity; org/page selection is a later stage.
-- Media uploads (currently URL only).
-- Reporting, link tracking, team invitations, billing, and plan limits.
+- External object storage (uploads are stored locally by the backend right now).
+- Rich attribution reporting, full invitation lifecycle, billing, and plan limits.
 
 ## Local Setup
 See `README.md` for Docker Compose instructions.
@@ -88,6 +115,7 @@ Backend:
 - `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `TOKEN_ENCRYPTION_SECRET`
 - OAuth: `LINKEDIN_CLIENT_ID/SECRET`, `INSTAGRAM_CLIENT_ID/SECRET`, `YOUTUBE_CLIENT_ID/SECRET`
 - URLs: `APP_BASE_URL`, `FRONTEND_URL`
+- Media: `MEDIA_UPLOAD_DIR`, `MAX_MEDIA_UPLOAD_BYTES`
 
 Worker:
 - `DATABASE_URL`, `REDIS_URL`

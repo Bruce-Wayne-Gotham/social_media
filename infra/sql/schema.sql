@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS clients (
   UNIQUE (workspace_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS client_approver_assignments (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, client_id)
+);
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -67,10 +74,32 @@ CREATE TABLE IF NOT EXISTS social_accounts (
   UNIQUE (client_id, platform, provider_account_id)
 );
 
+CREATE TABLE IF NOT EXISTS media_assets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  original_filename TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  file_size_bytes BIGINT NOT NULL DEFAULT 0,
+  storage_key TEXT NOT NULL UNIQUE,
+  public_url TEXT,
+  upload_token_hash TEXT,
+  upload_expires_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'ready', 'failed')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_workspace_id ON media_assets(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_media_assets_client_id ON media_assets(client_id);
+CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status);
+
 CREATE TABLE IF NOT EXISTS posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  media_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL,
   content TEXT NOT NULL,
   media_url TEXT,
   hashtags TEXT[] NOT NULL DEFAULT '{}',
@@ -84,6 +113,40 @@ CREATE TABLE IF NOT EXISTS posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS media_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS tracked_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  post_id UUID REFERENCES posts(id) ON DELETE SET NULL,
+  original_url TEXT NOT NULL,
+  destination_url TEXT NOT NULL,
+  short_code TEXT NOT NULL UNIQUE,
+  utm_source TEXT,
+  utm_medium TEXT,
+  utm_campaign TEXT,
+  utm_content TEXT,
+  utm_term TEXT,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_links_client_id ON tracked_links(client_id);
+CREATE INDEX IF NOT EXISTS idx_tracked_links_post_id ON tracked_links(post_id);
+CREATE INDEX IF NOT EXISTS idx_tracked_links_short_code ON tracked_links(short_code);
+
+CREATE TABLE IF NOT EXISTS tracked_link_clicks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tracked_link_id UUID NOT NULL REFERENCES tracked_links(id) ON DELETE CASCADE,
+  referrer TEXT,
+  user_agent TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_link_clicks_link_id ON tracked_link_clicks(tracked_link_id);
+CREATE INDEX IF NOT EXISTS idx_tracked_link_clicks_created_at ON tracked_link_clicks(created_at);
+
 CREATE TABLE IF NOT EXISTS post_targets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -94,8 +157,6 @@ CREATE TABLE IF NOT EXISTS post_targets (
   error_message TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  -- Legacy flows target a single account per platform (social_account_id is NULL).
-  -- New flows can target multiple social accounts on the same platform.
 );
 
 DO $$
@@ -123,25 +184,49 @@ END $$;
 
 CREATE INDEX IF NOT EXISTS idx_posts_user_id ON posts(user_id);
 CREATE INDEX IF NOT EXISTS idx_posts_client_id ON posts(client_id);
+CREATE INDEX IF NOT EXISTS idx_posts_media_asset_id ON posts(media_asset_id);
 CREATE INDEX IF NOT EXISTS idx_posts_scheduled_time ON posts(scheduled_time);
 CREATE INDEX IF NOT EXISTS idx_posts_approval_status ON posts(approval_status);
 CREATE INDEX IF NOT EXISTS idx_social_accounts_user_id ON social_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_social_accounts_client_id ON social_accounts(client_id);
 CREATE INDEX IF NOT EXISTS idx_social_accounts_platform ON social_accounts(platform);
 CREATE INDEX IF NOT EXISTS idx_post_targets_post_id ON post_targets(post_id);
+CREATE INDEX IF NOT EXISTS idx_client_approver_assignments_client_id ON client_approver_assignments(client_id);
 
 CREATE TABLE IF NOT EXISTS post_approval_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'requested', 'approved', 'rejected', 'unapproved')),
+  actor_label TEXT,
+  action TEXT NOT NULL,
   from_status TEXT,
   to_status TEXT,
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE post_approval_events
+  DROP CONSTRAINT IF EXISTS post_approval_events_action_check;
+
+ALTER TABLE post_approval_events
+  ADD CONSTRAINT post_approval_events_action_check
+  CHECK (action IN ('created', 'updated', 'requested', 'approved', 'rejected', 'unapproved', 'commented'));
+
 CREATE INDEX IF NOT EXISTS idx_post_approval_events_post_id ON post_approval_events(post_id);
+
+CREATE TABLE IF NOT EXISTS approval_magic_links (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+  label TEXT,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_approval_magic_links_client_id ON approval_magic_links(client_id);
+CREATE INDEX IF NOT EXISTS idx_approval_magic_links_expires_at ON approval_magic_links(expires_at);
 
 CREATE TABLE IF NOT EXISTS oauth_connect_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

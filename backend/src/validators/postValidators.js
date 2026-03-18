@@ -8,6 +8,7 @@ const platformSchema = z.preprocess(
 
 const createPostSchema = z.object({
   content: z.string().min(1).max(5000),
+  mediaAssetId: z.string().uuid().optional().nullable(),
   mediaUrl: z.string().url().optional().or(z.literal("")),
   hashtags: z.array(z.string().min(1)).default([]),
   scheduledTime: z.string().datetime().optional().nullable(),
@@ -16,6 +17,7 @@ const createPostSchema = z.object({
 
 const updatePostSchema = z.object({
   content: z.string().min(1).max(5000).optional(),
+  mediaAssetId: z.string().uuid().optional().nullable(),
   mediaUrl: z.string().url().optional().or(z.literal("")),
   hashtags: z.array(z.string().min(1)).optional(),
   scheduledTime: z.string().datetime().optional().nullable(),

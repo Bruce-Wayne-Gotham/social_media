@@ -47,6 +47,32 @@ async function getCurrentWorkspace(userId) {
   return result.rows[0] || null;
 }
 
+async function switchCurrentWorkspace(userId, workspaceId) {
+  await assertWorkspaceMember(userId, workspaceId);
+
+  const result = await query(
+    `WITH default_client AS (
+       SELECT id
+       FROM clients
+       WHERE workspace_id = $2
+       ORDER BY created_at ASC
+       LIMIT 1
+     )
+     UPDATE users
+     SET default_workspace_id = $2,
+         default_client_id = (SELECT id FROM default_client)
+     WHERE id = $1
+     RETURNING default_workspace_id`,
+    [userId, workspaceId]
+  );
+
+  if (result.rowCount === 0) {
+    throw httpError("User not found", 404);
+  }
+
+  return getCurrentWorkspace(userId);
+}
+
 async function assertWorkspaceMember(userId, workspaceId) {
   const result = await query(
     `SELECT role
@@ -66,6 +92,6 @@ module.exports = {
   assertWorkspaceMember,
   createWorkspace,
   getCurrentWorkspace,
-  listWorkspacesForUser
+  listWorkspacesForUser,
+  switchCurrentWorkspace
 };
-

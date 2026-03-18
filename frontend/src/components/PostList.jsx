@@ -1,4 +1,4 @@
-export function PostList({ posts = [], clientsById = {} }) {
+export function PostList({ posts = [], clientsById = {}, selectedPostId = "", onSelectPost }) {
   return (
     <section className="rounded-[2rem] border border-[var(--line)] bg-[var(--surface)] p-6">
       <div className="mb-4">
@@ -11,7 +11,12 @@ export function PostList({ posts = [], clientsById = {} }) {
           <p className="text-sm text-[var(--muted)]">No posts yet.</p>
         ) : (
           posts.map((post) => (
-            <article className="rounded-2xl border border-[var(--line)] bg-white/60 p-4" key={post.id}>
+            <button
+              className={`w-full rounded-2xl border p-4 text-left ${selectedPostId === post.id ? "border-[var(--accent)] bg-white/80" : "border-[var(--line)] bg-white/60"}`}
+              key={post.id}
+              type="button"
+              onClick={() => onSelectPost?.(post.id)}
+            >
               <div className="flex flex-wrap items-center gap-3 text-sm text-[var(--muted)]">
                 {clientsById[post.client_id] ? <span>{clientsById[post.client_id]}</span> : null}
                 {post.approval_status ? (
@@ -34,11 +39,10 @@ export function PostList({ posts = [], clientsById = {} }) {
                   </span>
                 ))}
               </div>
-            </article>
+            </button>
           ))
         )}
       </div>
     </section>
   );
 }
-

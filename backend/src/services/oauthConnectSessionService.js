@@ -1,6 +1,7 @@
 const { query } = require("../config/db");
 const { encrypt, decrypt } = require("../utils/crypto");
 const { httpError } = require("../utils/httpError");
+const { assertClientAccess } = require("./accessService");
 
 async function createSession({ userId, clientId, platform, accessToken, refreshToken, expiry, candidates }) {
   const result = await query(
@@ -34,19 +35,6 @@ async function getSessionForUser(userId, sessionId) {
   return result.rows[0] || null;
 }
 
-async function assertClientAccess(userId, clientId) {
-  const result = await query(
-    `SELECT 1
-     FROM clients c
-     JOIN workspace_members wm ON wm.workspace_id = c.workspace_id
-     WHERE c.id = $1 AND wm.user_id = $2`,
-    [clientId, userId]
-  );
-  if (result.rowCount === 0) {
-    throw httpError("Client not found", 404);
-  }
-}
-
 async function consumeSession(userId, sessionId, { clientId, providerAccountIds }) {
   const session = await getSessionForUser(userId, sessionId);
   if (!session) {
@@ -75,7 +63,6 @@ async function consumeSession(userId, sessionId, { clientId, providerAccountIds 
   const accessToken = decrypt(session.access_token);
   const refreshToken = session.refresh_token ? decrypt(session.refresh_token) : null;
 
-  // Create/update one social profile per selected provider account id.
   const created = [];
   for (const candidate of selectedCandidates) {
     const result = await query(
@@ -119,4 +106,3 @@ module.exports = {
   createSession,
   getSessionForUser
 };
-

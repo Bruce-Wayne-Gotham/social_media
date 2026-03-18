@@ -12,6 +12,7 @@ router.get("/:id", controller.getPost);
 router.patch("/:id", controller.updatePost);
 
 router.post("/:id/request-approval", approvalController.requestApproval);
+router.post("/:id/comments", approvalController.comment);
 router.post("/:id/approve", approvalController.approve);
 router.post("/:id/reject", approvalController.reject);
 

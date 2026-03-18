@@ -1,4 +1,4 @@
-const { createWorkspaceSchema } = require("../validators/workspaceValidators");
+const { createWorkspaceSchema, switchWorkspaceSchema } = require("../validators/workspaceValidators");
 const workspaceService = require("../services/workspaceService");
 const clientService = require("../services/clientService");
 const { createClientSchema } = require("../validators/clientValidators");
@@ -31,6 +31,16 @@ async function getCurrentWorkspace(req, res, next) {
   }
 }
 
+async function switchCurrentWorkspace(req, res, next) {
+  try {
+    const payload = switchWorkspaceSchema.parse(req.body);
+    const workspace = await workspaceService.switchCurrentWorkspace(req.user.sub, payload.workspaceId);
+    res.json({ workspace });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function listClients(req, res, next) {
   try {
     const clients = await clientService.listClients(req.user.sub, req.params.workspaceId);
@@ -55,6 +65,6 @@ module.exports = {
   createWorkspace,
   getCurrentWorkspace,
   listClients,
-  listWorkspaces
+  listWorkspaces,
+  switchCurrentWorkspace
 };
-

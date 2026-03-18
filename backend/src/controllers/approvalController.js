@@ -1,5 +1,6 @@
 const {
   approvePostSchema,
+  commentOnPostSchema,
   rejectPostSchema,
   requestApprovalSchema
 } = require("../validators/approvalValidators");
@@ -35,9 +36,19 @@ async function reject(req, res, next) {
   }
 }
 
+async function comment(req, res, next) {
+  try {
+    const payload = commentOnPostSchema.parse(req.body || {});
+    const post = await postService.addApprovalComment(req.user.sub, req.params.id, payload.note);
+    res.json({ post });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   approve,
+  comment,
   reject,
   requestApproval
 };
-
