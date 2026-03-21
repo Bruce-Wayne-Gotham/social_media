@@ -1,9 +1,10 @@
 export function PostList({ posts = [], clientsById = {}, selectedPostId = "", onSelectPost }) {
   return (
-    <section className="rounded-[2rem] border border-[var(--line)] bg-[var(--surface)] p-6">
+    <section className="rounded-[2rem] border border-[var(--line)] bg-[var(--surface)] p-6 shadow-[0_12px_40px_rgba(32,26,23,0.04)]">
       <div className="mb-4">
         <p className="text-sm uppercase tracking-[0.24em] text-[var(--muted)]">History</p>
         <h2 className="mt-2 text-2xl">Recent posts</h2>
+        <p className="mt-2 text-sm text-[var(--muted)]">A running record of approved, pending, rejected, and drafted work.</p>
       </div>
 
       <div className="space-y-4">
@@ -12,7 +13,7 @@ export function PostList({ posts = [], clientsById = {}, selectedPostId = "", on
         ) : (
           posts.map((post) => (
             <button
-              className={`w-full rounded-2xl border p-4 text-left ${selectedPostId === post.id ? "border-[var(--accent)] bg-white/80" : "border-[var(--line)] bg-white/60"}`}
+              className={`w-full rounded-[1.6rem] border p-4 text-left transition ${selectedPostId === post.id ? "border-[var(--accent)] bg-white/88 shadow-sm" : "border-[var(--line)] bg-white/60 hover:bg-white/78"}`}
               key={post.id}
               type="button"
               onClick={() => onSelectPost?.(post.id)}
@@ -38,7 +39,7 @@ export function PostList({ posts = [], clientsById = {}, selectedPostId = "", on
                 <span>{new Date(post.created_at).toLocaleString()}</span>
                 {post.scheduled_time ? <span>Scheduled: {new Date(post.scheduled_time).toLocaleString()}</span> : null}
               </div>
-              <p className="mt-3 whitespace-pre-wrap">{post.content}</p>
+              <p className="mt-3 whitespace-pre-wrap leading-6">{post.content}</p>
               <div className="mt-3 flex flex-wrap gap-2 text-sm">
                 {post.targets.map((target) => (
                   <span

@@ -18,24 +18,17 @@ function createStrategy() {
   };
 }
 
-test("stub provider returns the requested number of drafts", async () => {
-  const service = createAutopilotProviderService({
-    config: {
-      provider: "stub",
-      openai: {}
-    }
-  });
-
-  const result = await service.generateDrafts({
-    clientName: "Northwind",
-    strategy: createStrategy(),
-    count: 2,
-    platforms: ["linkedin"]
-  });
-
-  assert.equal(result.provider, "stub");
-  assert.equal(result.generationSource, "autopilot_stub");
-  assert.equal(result.drafts.length, 2);
+test("unsupported stub provider is rejected", async () => {
+  assert.throws(
+    () =>
+      createAutopilotProviderService({
+        config: {
+          provider: "stub",
+          openai: {}
+        }
+      }),
+    /unsupported autopilot provider/i
+  );
 });
 
 test("openai provider sends structured output request and parses drafts", async () => {
@@ -53,7 +46,7 @@ test("openai provider sends structured output request and parses drafts", async 
       request = { url, options };
       return {
         ok: true,
-        text: async () => JSON.stringify({
+        json: async () => ({
           id: "resp_123",
           model: "gpt-4.1",
           output_text: JSON.stringify({
@@ -67,7 +60,10 @@ test("openai provider sends structured output request and parses drafts", async 
             output_tokens: 22,
             total_tokens: 33
           }
-        })
+        }),
+        headers: {
+          get: () => "resp_123"
+        }
       };
     }
   });
@@ -84,7 +80,7 @@ test("openai provider sends structured output request and parses drafts", async 
   assert.equal(request.url, "https://example.com/v1/responses");
   assert.equal(body.text.format.type, "json_schema");
   assert.equal(body.text.format.schema.properties.drafts.minItems, 2);
-  assert.equal(result.generationSource, "autopilot_openai");
+  assert.equal(result.generationSource, "autopilot_ai");
   assert.deepEqual(result.drafts, ["Draft one", "Draft two"]);
   assert.equal(result.usage.totalTokens, 33);
 });
@@ -101,9 +97,12 @@ test("openai provider rejects invalid structured output", async () => {
     },
     fetchImpl: async () => ({
       ok: true,
-      text: async () => JSON.stringify({
+      json: async () => ({
         output_text: "not-json"
-      })
+      }),
+      headers: {
+        get: () => null
+      }
     })
   });
 
@@ -114,7 +113,7 @@ test("openai provider rejects invalid structured output", async () => {
       count: 1,
       platforms: ["linkedin"]
     }),
-    (error) => error.statusCode === 502 && /invalid structured output/i.test(error.message)
+    (error) => error.statusCode === 502 && /invalid json/i.test(error.message)
   );
 });
 

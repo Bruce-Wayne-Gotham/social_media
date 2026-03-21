@@ -13,6 +13,7 @@ import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { MagicLinkPanel } from "./MagicLinkPanel";
 import { LinkTrackingPanel } from "./LinkTrackingPanel";
 import { AutopilotPanel } from "./AutopilotPanel";
+import { BillingPanel } from "./BillingPanel";
 
 export function DashboardShell() {
   const router = useRouter();
@@ -23,8 +24,14 @@ export function DashboardShell() {
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
   const [clientDetail, setClientDetail] = useState(null);
+  const [billing, setBilling] = useState(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  const [startingCheckout, setStartingCheckout] = useState(false);
   const [accounts, setAccounts] = useState([]);
+  const [accountsError, setAccountsError] = useState("");
   const [posts, setPosts] = useState([]);
+  const [postsError, setPostsError] = useState("");
   const [selectedPostId, setSelectedPostId] = useState("");
   const [selectedPost, setSelectedPost] = useState(null);
   const [selectedPostLoading, setSelectedPostLoading] = useState(false);
@@ -79,44 +86,87 @@ export function DashboardShell() {
       setClientDetail(null);
       return null;
     }
+    try {
+      const { client } = await apiRequest(`/clients/${nextClientId}`);
+      setClientDetail(client);
+      return client;
+    } catch (_error) {
+      setClientDetail(null);
+      return null;
+    }
+  }
 
-    const { client } = await apiRequest(`/clients/${nextClientId}`);
-    setClientDetail(client);
-    return client;
+  async function loadBillingForWorkspace(nextWorkspaceId) {
+    if (!nextWorkspaceId) {
+      setBilling(null);
+      return null;
+    }
+
+    setBillingLoading(true);
+    setBillingError("");
+    try {
+      const { billing: nextBilling } = await apiRequest(`/billing/workspaces/${nextWorkspaceId}`);
+      setBilling(nextBilling);
+      return nextBilling;
+    } catch (loadError) {
+      setBillingError(loadError.message || "Failed to load billing");
+      setBilling(null);
+      return null;
+    } finally {
+      setBillingLoading(false);
+    }
   }
 
   async function loadPostsForClient(nextClientId, nextClients) {
+    setPostsError("");
     if (!nextClientId) {
       setPosts([]);
       return [];
     }
 
     if (nextClientId === "all") {
-      const lists = await Promise.all(
-        (nextClients || []).map(async (c) => {
-          const { posts: p } = await apiRequest(`/clients/${c.id}/posts`);
-          return p;
-        })
-      );
-      const merged = lists.flat();
-      setPosts(merged);
-      return merged;
+      try {
+        const lists = await Promise.all(
+          (nextClients || []).map(async (c) => {
+            const { posts: p } = await apiRequest(`/clients/${c.id}/posts`);
+            return p;
+          })
+        );
+        const merged = lists.flat();
+        setPosts(merged);
+        return merged;
+      } catch (loadError) {
+        setPosts([]);
+        setPostsError(loadError.message || "Failed to load posts");
+        return [];
+      }
     }
-
-    const { posts: p } = await apiRequest(`/clients/${nextClientId}/posts`);
-    setPosts(p);
-    return p;
+    try {
+      const { posts: p } = await apiRequest(`/clients/${nextClientId}/posts`);
+      setPosts(p);
+      return p;
+    } catch (loadError) {
+      setPosts([]);
+      setPostsError(loadError.message || "Failed to load posts");
+      return [];
+    }
   }
 
   async function loadProfilesForClient(nextClientId) {
+    setAccountsError("");
     if (!nextClientId || nextClientId === "all") {
       setAccounts([]);
       return [];
     }
-
-    const { profiles } = await apiRequest(`/clients/${nextClientId}/social-profiles`);
-    setAccounts(profiles);
-    return profiles;
+    try {
+      const { profiles } = await apiRequest(`/clients/${nextClientId}/social-profiles`);
+      setAccounts(profiles);
+      return profiles;
+    } catch (loadError) {
+      setAccounts([]);
+      setAccountsError(loadError.message || "Failed to load social profiles");
+      return [];
+    }
   }
 
   async function loadPostDetail(postId) {
@@ -168,7 +218,8 @@ export function DashboardShell() {
     setUser(nextUser);
 
     const loaded = await loadWorkspacesAndClients(nextUser?.defaultWorkspaceId, nextUser?.defaultClientId);
-    await Promise.all([
+    await Promise.allSettled([
+      loadBillingForWorkspace(loaded.workspaceId),
       loadClientDetail(loaded.clientId),
       loadProfilesForClient(loaded.clientId),
       refreshApprovalState(loaded.clientId, loaded.clients)
@@ -190,6 +241,7 @@ export function DashboardShell() {
   }, [router]);
 
   const connectionStatus = searchParams.get("connection");
+  const billingStatus = searchParams.get("billing");
   const platform = searchParams.get("platform");
   const message = searchParams.get("message");
 
@@ -199,6 +251,8 @@ export function DashboardShell() {
 
   const byId = clientsById(clients);
   const currentClientName = clients.find((client) => client.id === clientId)?.name || "";
+  const pendingApprovals = posts.filter((post) => post.approval_status === "needs_approval").length;
+  const scheduledPosts = posts.filter((post) => post.scheduled_time).length;
 
   async function handleApprovalMutation(path, note, keepSelection = false) {
     if (!selectedPostId) return;
@@ -254,7 +308,10 @@ export function DashboardShell() {
         method: "POST",
         body: JSON.stringify(generationPayload)
       });
-      await refreshApprovalState(clientId, clients, "");
+      await Promise.all([
+        loadBillingForWorkspace(workspaceId),
+        refreshApprovalState(clientId, clients, "")
+      ]);
     } catch (generationError) {
       setAutopilotError(generationError.message || "Failed to generate drafts");
     } finally {
@@ -264,26 +321,48 @@ export function DashboardShell() {
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-10">
-      <header className="mb-8 flex flex-col gap-4 rounded-[2.5rem] border border-[var(--line)] bg-[var(--surface)] p-8 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm uppercase tracking-[0.3em] text-[var(--muted)]">SocialHub</p>
-          <h1 className="mt-2 text-5xl">Control your publishing pipeline.</h1>
-          <p className="mt-3 max-w-2xl text-[var(--muted)]">
-            Draft once, route approvals cleanly, and monitor channel-specific publishing from a single workspace.
-          </p>
+      <header className="mb-8 overflow-hidden rounded-[2.5rem] border border-[rgba(32,26,23,0.1)] bg-[linear-gradient(135deg,rgba(255,255,255,0.92),rgba(255,246,237,0.85))] p-8 shadow-[0_24px_80px_rgba(32,26,23,0.08)]">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.3em] text-[var(--muted)]">SocialHub</p>
+            <h1 className="mt-2 max-w-3xl text-5xl leading-tight">Keep LinkedIn, Instagram, and YouTube moving without losing approval control.</h1>
+            <p className="mt-4 max-w-2xl text-[15px] text-[var(--muted)]">
+              SocialHub is tuned for agency teams: client workspaces, Safe Mode approvals, usage visibility, and one place to steer the queue.
+            </p>
+          </div>
+          <div className="rounded-[1.75rem] border border-[rgba(32,26,23,0.08)] bg-white/70 px-5 py-4 text-sm text-[var(--muted)] shadow-sm">
+            <p className="font-semibold text-[var(--foreground)]">{user?.email}</p>
+            <p className="mt-1">Workspace-led operations with approval-first publishing.</p>
+            <button
+              className="mt-3 rounded-full border border-[var(--line)] px-4 py-2"
+              type="button"
+              onClick={() => {
+                localStorage.removeItem("socialhub_token");
+                router.push("/");
+              }}
+            >
+              Logout
+            </button>
+          </div>
         </div>
-        <div className="text-sm text-[var(--muted)]">
-          <p>{user?.email}</p>
-          <button
-            className="mt-2 rounded-full border border-[var(--line)] px-4 py-2"
-            type="button"
-            onClick={() => {
-              localStorage.removeItem("socialhub_token");
-              router.push("/");
-            }}
-          >
-            Logout
-          </button>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-4">
+          <div className="rounded-[1.5rem] border border-[rgba(32,26,23,0.08)] bg-white/68 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Workspace</p>
+            <p className="mt-2 text-2xl">{workspaces.length || 0}</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-[rgba(32,26,23,0.08)] bg-white/68 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Clients</p>
+            <p className="mt-2 text-2xl">{clients.length || 0}</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-[rgba(32,26,23,0.08)] bg-white/68 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Approvals Waiting</p>
+            <p className="mt-2 text-2xl">{pendingApprovals}</p>
+          </div>
+          <div className="rounded-[1.5rem] border border-[rgba(32,26,23,0.08)] bg-white/68 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-[var(--muted)]">Scheduled</p>
+            <p className="mt-2 text-2xl">{scheduledPosts}</p>
+          </div>
         </div>
       </header>
 
@@ -299,9 +378,27 @@ export function DashboardShell() {
         </div>
       ) : null}
 
+      {billingStatus ? (
+        <div
+          className={`mb-6 rounded-2xl border px-4 py-3 text-sm ${billingStatus === "success"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : "border-amber-200 bg-amber-50 text-amber-800"}`}
+        >
+          {billingStatus === "success"
+            ? "Billing updated successfully."
+            : "Stripe checkout was cancelled before completion."}
+        </div>
+      ) : null}
+
       {error ? (
         <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </div>
+      ) : null}
+
+      {!error && (billingError || accountsError || postsError) ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Some dashboard sections could not load completely.
         </div>
       ) : null}
 
@@ -326,6 +423,7 @@ export function DashboardShell() {
                   ""
                 );
                 await Promise.all([
+                  loadBillingForWorkspace(nextWorkspaceId),
                   loadClientDetail(nextClientId),
                   loadProfilesForClient(nextClientId),
                   refreshApprovalState(nextClientId, nextClients, "")
@@ -362,10 +460,37 @@ export function DashboardShell() {
               setClients(nextClients);
               setClientId(client.id);
               await Promise.all([
+                loadBillingForWorkspace(workspaceId),
                 loadClientDetail(client.id),
                 loadProfilesForClient(client.id),
                 refreshApprovalState(client.id, nextClients, "")
               ]);
+            }}
+          />
+
+          <BillingPanel
+            billing={billing}
+            loading={billingLoading}
+            error={billingError}
+            startingCheckout={startingCheckout}
+            onUpgrade={async () => {
+              if (!workspaceId) {
+                return;
+              }
+
+              setStartingCheckout(true);
+              setBillingError("");
+              try {
+                const { checkoutUrl } = await apiRequest(`/billing/workspaces/${workspaceId}/checkout`, {
+                  method: "POST",
+                  body: JSON.stringify({})
+                });
+                window.location.assign(checkoutUrl);
+              } catch (checkoutError) {
+                setBillingError(checkoutError.message || "Failed to start Stripe checkout");
+              } finally {
+                setStartingCheckout(false);
+              }
             }}
           />
 
@@ -452,6 +577,7 @@ export function DashboardShell() {
           <LinkTrackingPanel clientId={clientId} selectedPostId={selectedPostId} />
           <PostComposer clientId={clientId} onCreated={async () => {
             await Promise.all([
+              loadBillingForWorkspace(workspaceId),
               loadClientDetail(clientId),
               loadProfilesForClient(clientId),
               refreshApprovalState(clientId, clients, selectedPostId)

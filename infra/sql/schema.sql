@@ -24,6 +24,21 @@ CREATE TABLE IF NOT EXISTS workspace_members (
   PRIMARY KEY (workspace_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS workspace_billing (
+  workspace_id UUID PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  plan_code TEXT NOT NULL DEFAULT 'free' CHECK (plan_code IN ('free', 'pro')),
+  stripe_customer_id TEXT UNIQUE,
+  stripe_subscription_id TEXT UNIQUE,
+  stripe_price_id TEXT,
+  stripe_checkout_session_id TEXT,
+  stripe_subscription_status TEXT,
+  current_period_start TIMESTAMPTZ,
+  current_period_end TIMESTAMPTZ,
+  cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS clients (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -102,6 +117,8 @@ CREATE TABLE IF NOT EXISTS media_assets (
 CREATE INDEX IF NOT EXISTS idx_media_assets_workspace_id ON media_assets(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_media_assets_client_id ON media_assets(client_id);
 CREATE INDEX IF NOT EXISTS idx_media_assets_status ON media_assets(status);
+CREATE INDEX IF NOT EXISTS idx_workspace_billing_plan_code ON workspace_billing(plan_code);
+CREATE INDEX IF NOT EXISTS idx_workspace_billing_customer_id ON workspace_billing(stripe_customer_id);
 
 CREATE TABLE IF NOT EXISTS posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

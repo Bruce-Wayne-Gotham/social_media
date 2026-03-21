@@ -13,6 +13,7 @@ SocialHub is an agency-first social media management app foundation for:
 - Scheduling and publishing via a Redis/BullMQ worker.
 - Saving per-client content strategy settings for Autopilot v1.
 - Generating AI-backed approval-ready drafts with internal risk checks.
+- Billing workspaces with one free plan, one paid Stripe plan, workspace usage counters, and server-side plan enforcement.
 
 ## Agency User Journey (Current UX)
 1. Log in (a default workspace and client exist for new users).
@@ -25,6 +26,7 @@ SocialHub is an agency-first social media management app foundation for:
 8. Build a tracked link with UTM values and copy the app-domain short link.
 9. Switch to "All clients" to get a planning view of scheduled posts in the calendar.
 10. Share a client approval magic link when an external reviewer should only see one client inbox.
+11. Review billing usage in the dashboard and upgrade the workspace through Stripe checkout when the free plan is too small.
 
 ## Supported Platforms
 - LinkedIn
@@ -45,6 +47,7 @@ SocialHub is an agency-first social media management app foundation for:
 - Tracked Link: a client-owned short link with original URL, resolved destination URL, UTM fields, optional post association, and creator metadata.
 - Tracked Link Click: a basic click event row with referrer, user agent, and timestamp.
 - Approval Events: audit log for approval lifecycle.
+- Workspace Billing: workspace-level Stripe customer/subscription state plus the current free/pro plan code.
 
 ## Current User Flows
 1. Register/Login
@@ -124,6 +127,24 @@ SocialHub is an agency-first social media management app foundation for:
 - Worker uses per-target retries with exponential backoff (default: 3 attempts) and stores the failure reason on the target row.
 - Best-effort idempotency: already-published targets are skipped if they have an `external_post_id`.
 
+11. Billing and plan limits
+- The app supports one free plan and one paid plan (`Agency Pro`).
+- Billing is workspace-scoped.
+- The dashboard shows current usage counters for:
+  - seats
+  - clients
+  - connected social profiles
+  - posts created this month
+  - AI credits used this month
+- Stripe Checkout is used to start the paid subscription flow.
+- Stripe webhooks update the workspace billing record after checkout/subscription changes.
+- Limits are enforced server-side on:
+  - creating clients
+  - connecting social profiles
+  - creating posts
+  - generating Autopilot drafts
+- Safe Mode remains enabled across both plans; billing does not bypass approval requirements.
+
 ## What Is NOT Implemented Yet (Known Gaps)
 - Workspace-level feature management UI for toggling Autopilot generation (the backend flag exists; management is still an admin/data task).
 - Client approver assignment management UI (permissions are enforced in the API, but assignment is still a data/admin task).
@@ -132,7 +153,7 @@ SocialHub is an agency-first social media management app foundation for:
   - YouTube: best-effort channel enumeration, falls back to user identity.
   - LinkedIn: currently connects the member identity; org/page selection is a later stage.
 - External object storage (uploads are stored locally by the backend right now).
-- Rich attribution reporting, full invitation lifecycle, billing, and plan limits.
+- Rich attribution reporting and full invitation lifecycle.
 
 ## Local Setup
 See `README.md` for Docker Compose instructions.
@@ -149,6 +170,7 @@ Backend:
 - URLs: `APP_BASE_URL`, `FRONTEND_URL`
 - Media: `MEDIA_UPLOAD_DIR`, `MAX_MEDIA_UPLOAD_BYTES`
 - Autopilot AI: `AUTOPILOT_AI_ENABLED`, `AUTOPILOT_AI_PROVIDER`, `AUTOPILOT_AI_RATE_LIMIT_MAX_REQUESTS`, `AUTOPILOT_AI_RATE_LIMIT_MAX_DRAFTS`, `AUTOPILOT_AI_RATE_LIMIT_WINDOW_SECONDS`, `AUTOPILOT_REQUEST_TIMEOUT_MS`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`, `OPENAI_PROJECT_ID`
+- Billing: `BILLING_ENABLED`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID_PRO`, `STRIPE_CHECKOUT_SUCCESS_URL`, `STRIPE_CHECKOUT_CANCEL_URL`
 
 Worker:
 - `DATABASE_URL`, `REDIS_URL`

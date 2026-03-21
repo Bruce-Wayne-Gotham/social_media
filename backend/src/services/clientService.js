@@ -2,6 +2,7 @@ const { query } = require("../config/db");
 const { httpError } = require("../utils/httpError");
 const { assertClientAccess, getWorkspaceMemberRecord } = require("./accessService");
 const { getWorkspaceAutopilotSnapshot } = require("./autopilotService");
+const { assertWithinWorkspacePlanLimit } = require("./billingService");
 
 function normalizeClientRow(row) {
   if (!row) {
@@ -63,6 +64,12 @@ async function createClient(userId, workspaceId, { name }) {
   if (!membership) {
     throw httpError("Not a workspace member", 403);
   }
+
+  await assertWithinWorkspacePlanLimit({
+    workspaceId,
+    metric: "clients",
+    amount: 1
+  });
 
   const result = await query(
     `INSERT INTO clients (workspace_id, name)

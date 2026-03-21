@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 
 const { pool, query } = require("../config/db");
 const { httpError } = require("../utils/httpError");
+const { ensureWorkspaceBillingRecord } = require("./billingService");
 
 async function register({ email, password }) {
   const existingUser = await query("SELECT id FROM users WHERE email = $1", [email]);
@@ -54,6 +55,7 @@ async function register({ email, password }) {
     );
 
     await client.query("COMMIT");
+    await ensureWorkspaceBillingRecord(workspaceId);
     return issueToken(user);
   } catch (error) {
     await client.query("ROLLBACK");

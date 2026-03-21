@@ -59,7 +59,7 @@ function normalizeHashtag(value) {
   return normalized.startsWith("#") ? normalized : `#${normalized}`;
 }
 
-function parseDraftGenerationResponse(payload, expectedCount, strategy) {
+function parseDraftGenerationResponse(payload, expectedCount, strategy = {}) {
   const text = extractTextFromResponse(payload);
   let parsed;
 

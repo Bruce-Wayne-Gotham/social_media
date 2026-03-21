@@ -2,6 +2,7 @@ const { getAutopilotConfig, assertAutopilotEnabled } = require("../config/autopi
 const { query } = require("../config/db");
 const { createAutopilotProvider } = require("./autopilotProvider");
 const { createAutopilotUsageService } = require("./autopilotUsageService");
+const { assertWithinWorkspacePlanLimit } = require("./billingService");
 
 async function getWorkspaceAutopilotSnapshot(workspaceId, { queryFn = query, getConfig = getAutopilotConfig } = {}) {
   const config = getConfig();
@@ -66,12 +67,94 @@ function createAutopilotService({
     return usageService.recordUsage(entry);
   });
 
+  async function recordGuardFailure({
+    workspaceId,
+    clientId,
+    userId,
+    platforms,
+    count,
+    config,
+    status,
+    error
+  }) {
+    await usageRecorder({
+      workspaceId,
+      clientId,
+      userId,
+      provider: config.provider,
+      model: config.openAiModel || config.openai?.model || null,
+      platforms,
+      status,
+      requestedDraftCount: count,
+      generatedDraftCount: 0,
+      promptTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      providerRequestId: null,
+      errorMessage: error.message
+    });
+  }
+
   return {
     async generateDrafts({ workspaceId, clientId, userId, clientName, strategy, count, platforms }) {
       const config = getConfig();
-      assertAutopilotEnabled(config);
-      await workspaceEnabledAssertion({ workspaceId, config });
-      await rateLimitEnforcer({ workspaceId, requestedDraftCount: count, config });
+      try {
+        assertAutopilotEnabled(config);
+      } catch (error) {
+        await recordGuardFailure({
+          workspaceId,
+          clientId,
+          userId,
+          platforms,
+          count,
+          config,
+          status: "disabled",
+          error
+        });
+        throw error;
+      }
+
+      try {
+        await workspaceEnabledAssertion({ workspaceId, config });
+      } catch (error) {
+        if (error.statusCode === 503) {
+          await recordGuardFailure({
+            workspaceId,
+            clientId,
+            userId,
+            platforms,
+            count,
+            config,
+            status: "disabled",
+            error
+          });
+        }
+        throw error;
+      }
+
+      try {
+        await rateLimitEnforcer({ workspaceId, requestedDraftCount: count, config });
+      } catch (error) {
+        if (error.statusCode === 429) {
+          await recordGuardFailure({
+            workspaceId,
+            clientId,
+            userId,
+            platforms,
+            count,
+            config,
+            status: "rate_limited",
+            error
+          });
+        }
+        throw error;
+      }
+
+      await assertWithinWorkspacePlanLimit({
+        workspaceId,
+        metric: "aiCredits",
+        amount: count
+      });
 
       const provider = providerFactory(config);
 
@@ -92,6 +175,7 @@ function createAutopilotService({
           userId,
           provider: result.provider || provider.name || config.provider,
           model: result.model || provider.model || config.openai?.model || null,
+          platforms,
           status: "succeeded",
           requestedDraftCount: count,
           generatedDraftCount: Array.isArray(result.drafts) ? result.drafts.length : 0,
@@ -110,6 +194,7 @@ function createAutopilotService({
           userId,
           provider: config.provider,
           model: config.openai?.model || null,
+          platforms,
           status: "failed",
           requestedDraftCount: count,
           generatedDraftCount: 0,

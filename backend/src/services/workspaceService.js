@@ -1,5 +1,6 @@
 const { query } = require("../config/db");
 const { httpError } = require("../utils/httpError");
+const { ensureWorkspaceBillingRecord } = require("./billingService");
 
 async function listWorkspacesForUser(userId) {
   const result = await query(
@@ -31,7 +32,9 @@ async function createWorkspace(userId, { name }) {
     [name, userId]
   );
 
-  return result.rows[0];
+  const workspace = result.rows[0];
+  await ensureWorkspaceBillingRecord(workspace.id);
+  return workspace;
 }
 
 async function getCurrentWorkspace(userId) {
