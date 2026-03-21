@@ -11,16 +11,20 @@ SocialHub is an agency-first social media management app foundation for:
 - Safe Mode approvals: posts must be approved before they can be queued/published.
 - Tracking outbound links with UTM parameters and short links on the app domain.
 - Scheduling and publishing via a Redis/BullMQ worker.
+- Saving per-client content strategy settings for Autopilot v1.
+- Generating AI-backed approval-ready drafts with internal risk checks.
 
 ## Agency User Journey (Current UX)
 1. Log in (a default workspace and client exist for new users).
 2. Create additional clients for each brand.
-3. Select a client to manage social profile connections, media assets, tracked links, and posts.
-4. Upload a file or paste a public media URL in the composer.
-5. Build a tracked link with UTM values and copy the app-domain short link.
-6. Switch to "All clients" to get a planning view of scheduled posts in the calendar.
-7. Review pending work in the approvals inbox, comment on the thread, and approve or reject from the post detail panel.
-8. Share a client approval magic link when an external reviewer should only see one client inbox.
+3. Select a client to manage social profile connections, content strategy, media assets, tracked links, and posts.
+4. Save a content strategy with brand voice notes, do and do not rules, content pillars, CTA style, hashtags, banned terms, and an optional required disclaimer.
+5. Generate Autopilot drafts for LinkedIn, Instagram, and/or YouTube.
+6. Review pending work in the approvals inbox, comment on the thread, and approve or reject from the post detail panel.
+7. Upload a file or paste a public media URL in the composer for manual posts.
+8. Build a tracked link with UTM values and copy the app-domain short link.
+9. Switch to "All clients" to get a planning view of scheduled posts in the calendar.
+10. Share a client approval magic link when an external reviewer should only see one client inbox.
 
 ## Supported Platforms
 - LinkedIn
@@ -30,12 +34,14 @@ SocialHub is an agency-first social media management app foundation for:
 ## Key Concepts (Data Model)
 - User: signs in via email/password and owns/joins workspaces.
 - Workspace: typically an agency container.
-- Client: a brand within a workspace.
+- Client: a brand within a workspace, now including content strategy settings.
+- Content Strategy: client-level notes and guardrails used by Autopilot v1.
 - Media Asset: an uploaded file tied to a workspace/client and reusable across posts.
 - Social Profile: a connected account/channel/page identity for a client.
   - Implementation note: social profiles are stored in the `social_accounts` table (legacy name) and referenced as `social_account_id`.
 - Post: content + media asset/public media URL + hashtags + schedule time, scoped to a client.
 - Post Targets: per-platform rows tracking publish status per selected target.
+- Risk Flags: post-level results of the current banned-term and disclaimer checks.
 - Tracked Link: a client-owned short link with original URL, resolved destination URL, UTM fields, optional post association, and creator metadata.
 - Tracked Link Click: a basic click event row with referrer, user agent, and timestamp.
 - Approval Events: audit log for approval lifecycle.
@@ -57,22 +63,47 @@ SocialHub is an agency-first social media management app foundation for:
   - which detected profile(s) to connect (checkbox list)
 - On submit, the backend stores 1+ social profiles for that platform/client.
 
-3. Upload media
+3. Manage client strategy
+- From the dashboard Autopilot v1 panel, select a client and save its content strategy.
+- Strategy fields currently include:
+  - `brand_voice_notes`
+  - `content_do`
+  - `content_dont`
+  - `content_pillars`
+  - `cta_style`
+  - `default_hashtags`
+  - `banned_terms`
+  - `required_disclaimer`
+
+4. Generate Autopilot drafts
+- The UI calls a client-scoped `generate-drafts` action.
+- Draft generation calls the configured AI provider and records per-workspace usage for rate limiting and auditability.
+- Every generated draft is stored with:
+  - `approval_status=needs_approval`
+  - `status=draft`
+  - `generation_source=autopilot_ai`
+- Risk checks run on the final draft content and currently flag:
+  - banned terms found in the content
+  - missing required disclaimer text
+- Risk flags are visible in the inbox, history list, and post detail view.
+- Autopilot generation is feature-flagged and rate-limited per workspace, with usage rows stored for each generation attempt.
+
+5. Upload media
 - From the composer, upload a file for the current client.
 - The backend creates a pending `media_assets` row and returns a signed one-time upload URL.
 - The frontend uploads the raw file to that URL and then shows the ready asset in the composer asset shelf.
 
-4. Create post
+6. Create manual post
 - Create a post from the dashboard composer.
 - Posts can reference a `media_asset_id` or a direct `media_url`.
-- Posts are created as `status=draft` and `approval_status=draft` (Safe Mode).
+- Manual posts are created as `status=draft` and `approval_status=draft` (Safe Mode).
 
-4a. Agency dashboard planning
+7. Agency dashboard planning
 - Workspace switcher + client selector (includes an "All clients" planning view).
 - Create client from the dashboard.
 - Calendar view (week/month) shows scheduled posts and labels them by client.
 
-4b. Link tracking
+8. Link tracking
 - Link tracking panel is client-scoped.
 - Users can create a tracked link from an original URL plus optional UTM values.
 - If a post is currently selected in the dashboard, the new tracked link is associated to that post.
@@ -80,12 +111,12 @@ SocialHub is an agency-first social media management app foundation for:
 - Short links resolve through `/l/<code>` and store a click event before redirecting to the UTM-decorated destination URL.
 - Reporting currently shows total clicks by client and a basic click breakdown by post.
 
-4c. Approval review
+9. Approval review
 - Approvals inbox shows all posts in `needs_approval` for the current client selection.
-- Post detail panel shows the full approval thread, comments, and approve/reject actions.
+- Post detail panel shows the full approval thread, comments, risk flags, and approve/reject actions.
 - Recent posts are selectable so creators and approvers can review the audit trail on any post.
 
-5. Approval + publishing
+10. Approval + publishing
 - API supports requesting approval, commenting, approving, rejecting.
 - Only approval triggers enqueueing the worker job.
 - Worker refuses to publish if the post is not approved.
@@ -94,6 +125,7 @@ SocialHub is an agency-first social media management app foundation for:
 - Best-effort idempotency: already-published targets are skipped if they have an `external_post_id`.
 
 ## What Is NOT Implemented Yet (Known Gaps)
+- Workspace-level feature management UI for toggling Autopilot generation (the backend flag exists; management is still an admin/data task).
 - Client approver assignment management UI (permissions are enforced in the API, but assignment is still a data/admin task).
 - Selecting specific connected social profiles in the composer (currently targets default/latest profile per platform).
 - Robust page/channel enumeration for every provider edge case.
@@ -116,6 +148,7 @@ Backend:
 - OAuth: `LINKEDIN_CLIENT_ID/SECRET`, `INSTAGRAM_CLIENT_ID/SECRET`, `YOUTUBE_CLIENT_ID/SECRET`
 - URLs: `APP_BASE_URL`, `FRONTEND_URL`
 - Media: `MEDIA_UPLOAD_DIR`, `MAX_MEDIA_UPLOAD_BYTES`
+- Autopilot AI: `AUTOPILOT_AI_ENABLED`, `AUTOPILOT_AI_PROVIDER`, `AUTOPILOT_AI_RATE_LIMIT_MAX_REQUESTS`, `AUTOPILOT_AI_RATE_LIMIT_MAX_DRAFTS`, `AUTOPILOT_AI_RATE_LIMIT_WINDOW_SECONDS`, `AUTOPILOT_REQUEST_TIMEOUT_MS`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL`, `OPENAI_PROJECT_ID`
 
 Worker:
 - `DATABASE_URL`, `REDIS_URL`
@@ -126,3 +159,6 @@ Worker:
 
 Frontend:
 - `NEXT_PUBLIC_API_BASE_URL`
+
+
+

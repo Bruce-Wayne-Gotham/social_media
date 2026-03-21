@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS clients (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  brand_voice_notes TEXT,
+  content_do TEXT[] NOT NULL DEFAULT '{}',
+  content_dont TEXT[] NOT NULL DEFAULT '{}',
+  content_pillars TEXT[] NOT NULL DEFAULT '{}',
+  cta_style TEXT,
+  default_hashtags TEXT[] NOT NULL DEFAULT '{}',
+  banned_terms TEXT[] NOT NULL DEFAULT '{}',
+  required_disclaimer TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (workspace_id, name)
@@ -103,6 +111,8 @@ CREATE TABLE IF NOT EXISTS posts (
   content TEXT NOT NULL,
   media_url TEXT,
   hashtags TEXT[] NOT NULL DEFAULT '{}',
+  risk_flags TEXT[] NOT NULL DEFAULT '{}',
+  generation_source TEXT NOT NULL DEFAULT 'manual' CHECK (generation_source IN ('manual', 'autopilot_stub', 'autopilot_ai')),
   scheduled_time TIMESTAMPTZ,
   approval_status TEXT NOT NULL DEFAULT 'draft' CHECK (approval_status IN ('draft', 'needs_approval', 'approved', 'rejected')),
   approval_requested_at TIMESTAMPTZ,
@@ -115,6 +125,35 @@ CREATE TABLE IF NOT EXISTS posts (
 
 ALTER TABLE posts
   ADD COLUMN IF NOT EXISTS media_asset_id UUID REFERENCES media_assets(id) ON DELETE SET NULL;
+
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS brand_voice_notes TEXT;
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS content_do TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS content_dont TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS content_pillars TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS cta_style TEXT;
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS default_hashtags TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS banned_terms TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE clients
+  ADD COLUMN IF NOT EXISTS required_disclaimer TEXT;
+
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS risk_flags TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE posts
+  ADD COLUMN IF NOT EXISTS generation_source TEXT NOT NULL DEFAULT 'manual';
+
+ALTER TABLE posts
+  DROP CONSTRAINT IF EXISTS posts_generation_source_check;
+
+ALTER TABLE posts
+  ADD CONSTRAINT posts_generation_source_check
+  CHECK (generation_source IN ('manual', 'autopilot_stub', 'autopilot_ai'));
 
 CREATE TABLE IF NOT EXISTS tracked_links (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -214,6 +253,55 @@ ALTER TABLE post_approval_events
 
 CREATE INDEX IF NOT EXISTS idx_post_approval_events_post_id ON post_approval_events(post_id);
 
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS autopilot_generation_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS workspace_ai_generation_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL,
+  model TEXT,
+  provider_request_id TEXT,
+  requested_count INT NOT NULL DEFAULT 0,
+  generated_count INT NOT NULL DEFAULT 0,
+  platforms TEXT[] NOT NULL DEFAULT '{}',
+  input_tokens INT NOT NULL DEFAULT 0,
+  output_tokens INT NOT NULL DEFAULT 0,
+  total_tokens INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('processing', 'succeeded', 'failed', 'disabled', 'rate_limited')),
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_ai_generation_usage_workspace_created_at
+  ON workspace_ai_generation_usage(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS autopilot_generation_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  feature_key TEXT NOT NULL DEFAULT 'autopilot_generation',
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  requested_draft_count INTEGER NOT NULL DEFAULT 0,
+  generated_draft_count INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  provider_response_id TEXT,
+  status TEXT NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'succeeded', 'failed', 'rate_limited', 'disabled')),
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_workspace_id ON autopilot_generation_usage(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_client_id ON autopilot_generation_usage(client_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_feature_key ON autopilot_generation_usage(feature_key, status, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS approval_magic_links (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -244,3 +332,13 @@ CREATE TABLE IF NOT EXISTS oauth_connect_sessions (
 CREATE INDEX IF NOT EXISTS idx_oauth_connect_sessions_user_id ON oauth_connect_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_connect_sessions_client_id ON oauth_connect_sessions(client_id);
 CREATE INDEX IF NOT EXISTS idx_oauth_connect_sessions_created_at ON oauth_connect_sessions(created_at);
+
+
+
+
+
+
+
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS autopilot_generation_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+

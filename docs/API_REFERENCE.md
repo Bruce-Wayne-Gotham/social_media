@@ -5,10 +5,10 @@ Base URL:
 
 Auth:
 - `POST /auth/register`
-  - body: `{ "email": "user@x.com", "password": "..." }`
+  - body: `{ "email": "user@example.com", "password": "..." }`
   - returns: `{ "token": "...", "user": { "id": "...", "email": "...", "createdAt": "..." } }`
 - `POST /auth/login`
-  - body: `{ "email": "user@x.com", "password": "..." }`
+  - body: `{ "email": "user@example.com", "password": "..." }`
   - returns: `{ "token": "...", "user": { ... } }`
 - `GET /auth/me`
   - returns: `{ "user": { "id", "email", "defaultWorkspaceId", "defaultClientId", "createdAt" } }`
@@ -35,12 +35,16 @@ Workspaces:
 
 Clients:
 - `GET /clients/:clientId`
-  - returns: `{ "client": { ... } }`
+  - returns: `{ "client": { "id", "workspace_id", "name", "brand_voice_notes", "content_do", "content_dont", "content_pillars", "cta_style", "default_hashtags", "banned_terms", "required_disclaimer", "created_at", "updated_at" } }`
 - `PATCH /clients/:clientId`
-  - body: `{ "name": "New Name" }`
+  - body: `{ "name?": "New Name", "brandVoiceNotes?": "...", "contentDo?": ["..."], "contentDont?": ["..."], "contentPillars?": ["..."], "ctaStyle?": "...", "defaultHashtags?": ["..."], "bannedTerms?": ["..."], "requiredDisclaimer?": "..." }`
   - returns: `{ "client": { ... } }`
 - `DELETE /clients/:clientId`
   - returns: `{ "ok": true }`
+- `POST /clients/:clientId/generate-drafts`
+  - body: `{ "count": 3, "platforms": ["linkedin", "instagram", "youtube"] }`
+  - returns: `{ "posts": [{ ... }] }`
+  - errors: `429` when the workspace rate limit or draft quota is exceeded, `503` when Autopilot is disabled globally or for the workspace, `502` when the provider fails
 - `GET /clients/:clientId/media-assets`
   - returns: `{ "assets": [{ "id", "client_id", "original_filename", "content_type", "file_size_bytes", "public_url", "status" }] }`
 - `POST /clients/:clientId/media-assets/upload-url`
@@ -86,7 +90,7 @@ OAuth Connect Sessions:
 
 Posts (Client-scoped):
 - `GET /clients/:clientId/posts`
-  - returns: `{ "posts": [...] }`
+  - returns: `{ "posts": [{ "id", "content", "hashtags", "risk_flags", "generation_source", "approval_status", "status", "targets": [...] }] }`
 - `POST /clients/:clientId/posts`
   - body: `{ "content": "...", "mediaAssetId": "<uuid>|null", "mediaUrl": "", "hashtags": [], "scheduledTime": null, "platforms": ["linkedin"] }`
   - returns: `{ "post": { ... } }`
@@ -130,3 +134,6 @@ Worker Token Resolution (Current):
 - Note: social profiles are stored in the `social_accounts` table (legacy name).
 - Targets can optionally specify `social_account_id` (social profile id) on `post_targets`.
 - The worker resolves tokens by `post.client_id` and prefers `post_targets.social_account_id` when present.
+
+
+

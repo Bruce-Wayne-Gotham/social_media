@@ -1,6 +1,6 @@
 # SocialHub
 
-SocialHub is a minimal SaaS MVP for drafting one post and publishing it across LinkedIn, Instagram, and YouTube workflows. The repository is split into a REST backend, a Redis-backed scheduling worker, and a Next.js frontend.
+SocialHub is a minimal agency-first SaaS MVP for managing client content workflows across LinkedIn, Instagram, and YouTube. The repository is split into a REST backend, a Redis-backed scheduling worker, and a Next.js frontend.
 
 ## Project Structure
 
@@ -18,18 +18,18 @@ SocialHub is a minimal SaaS MVP for drafting one post and publishing it across L
 ## Features
 
 - Email/password authentication with JWTs
-- OAuth-style social profile connection flow
-- Workspaces and Clients (agency-friendly foundation)
+- OAuth-style social profile connection flow for LinkedIn, Instagram, and YouTube
+- Workspaces and clients for agency teams
 - Client-scoped media asset uploads with signed one-time upload URLs
 - Post creation with uploaded assets or public media URLs, hashtags, target platforms, and scheduling
 - Safe Mode approvals with comments and audit thread
 - Client approval magic links for external reviewers
 - Client-scoped tracked links with UTM builder, short links, and click reporting
 - Redis queue worker for scheduled publishing
-- Platform adaptation service for LinkedIn, Instagram, and YouTube
 - Dashboard for post history, approvals inbox, link tracking, and publish status
-- Minimal agency dashboard: workspace/client selection, calendar planning view, and post review panel
-- Password validation with friendly error messages and inline help tooltip
+- Client content strategy settings for Autopilot v1
+- AI-backed Autopilot v1 draft generation into `needs_approval`
+- Internal risk checks for banned terms and missing required disclaimers
 
 ## Local Setup
 
@@ -62,17 +62,20 @@ docker compose up --build
 - Error like `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` means the Docker daemon is not running. Start Docker Desktop (or run `sudo systemctl start docker` on Linux) and wait until it reports "Running", then retry `docker compose up --build`.
 - If Docker Desktop is running but the error persists on Windows, open PowerShell and run `wsl --status` to confirm WSL 2 is installed. If it is not, enable WSL 2 and restart Docker Desktop.
 
-### How To Test Approvals + Media Uploads + Link Tracking (Local)
+### How To Test Approvals + Autopilot + Media Uploads + Link Tracking (Local)
 
 1. Recreate the database after schema changes: `docker compose down -v`
 2. Start the stack: `docker compose up --build`
 3. Register a user on the frontend and login.
 4. Create or select a client.
-5. Upload a media asset from the composer and confirm it appears in the asset shelf.
-6. Create a post using the uploaded asset or a public media URL.
-7. Request approval, add a comment, then approve or reject it from the dashboard.
-8. Generate a client approval magic link and open it in a private window to review the same inbox externally.
-9. Open the link tracking panel, build a tracked link with UTM values, copy the short link, then open `/l/<code>` and confirm the click totals increase.
+5. Open the Autopilot v1 panel, save a content strategy, then generate draft posts after enabling the provider env vars.
+6. Confirm the generated drafts land in the approvals inbox with `needs_approval` status.
+7. Add a banned term or required disclaimer in the strategy, generate again, and confirm the risk flags appear on the draft detail view when applicable.
+8. Upload a media asset from the composer and confirm it appears in the asset shelf.
+9. Create a manual post using the uploaded asset or a public media URL.
+10. Request approval, add a comment, then approve or reject it from the dashboard.
+11. Generate a client approval magic link and open it in a private window to review the same inbox externally.
+12. Open the link tracking panel, build a tracked link with UTM values, copy the short link, then open `/l/<code>` and confirm the click totals increase.
 
 ## API Overview
 
@@ -81,13 +84,6 @@ docker compose up --build
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
-
-### Social Accounts (Legacy)
-
-- `GET /api/social-accounts`
-- `POST /api/social-accounts/connect`
-- `GET /api/social-accounts/oauth/:platform/start`
-- `GET /api/social-accounts/oauth/:platform/callback`
 
 ### Posts
 
@@ -114,6 +110,7 @@ docker compose up --build
 - `GET /api/clients/:clientId`
 - `PATCH /api/clients/:clientId`
 - `DELETE /api/clients/:clientId`
+- `POST /api/clients/:clientId/generate-drafts`
 - `GET /api/clients/:clientId/posts`
 - `POST /api/clients/:clientId/posts`
 - `GET /api/clients/:clientId/media-assets`
@@ -122,6 +119,8 @@ docker compose up --build
 - `GET /api/clients/:clientId/tracked-links/report`
 - `POST /api/clients/:clientId/tracked-links`
 - `POST /api/clients/:clientId/approval-links`
+- `GET /api/clients/:clientId/social-profiles`
+- `GET /api/clients/:clientId/social-profiles/oauth/:platform/start`
 
 ### Media Assets
 
@@ -133,12 +132,6 @@ docker compose up --build
 - `GET /api/tracked-links/:code/resolve`
 - App short-link path: `/l/<code>`
 
-### Social Profiles
-
-- `GET /api/clients/:clientId/social-profiles`
-- `GET /api/clients/:clientId/social-profiles/oauth/:platform/start`
-- `DELETE /api/social-profiles/:socialProfileId`
-
 ### Approval Links
 
 - `GET /api/approval-links/:token`
@@ -149,6 +142,8 @@ docker compose up --build
 
 ## Notes
 
+- Autopilot v1 now calls a real provider behind a clean service boundary with a workspace feature flag, rate limiting, and usage tracking.
+- Generated drafts never auto-publish. They are created directly in the approvals queue and can be disabled via `AUTOPILOT_AI_ENABLED=false` or the workspace feature flag.
 - Publisher modules currently include production-friendly service boundaries and request payload shaping. Replace the placeholder API calls with real platform credentials and endpoints before deploying.
 - Tokens are encrypted at rest using application-level symmetric encryption.
 - Media uploads currently use local backend storage plus signed one-time upload URLs. Swap the storage layer if you later move to S3/GCS.
@@ -158,3 +153,6 @@ docker compose up --build
 
 - Current capabilities and limitations: `docs/CURRENT_STATE.md`
 - API reference: `docs/API_REFERENCE.md`
+
+
+

@@ -12,6 +12,7 @@ import { ApprovalInboxPanel } from "./ApprovalInboxPanel";
 import { ApprovalDetailPanel } from "./ApprovalDetailPanel";
 import { MagicLinkPanel } from "./MagicLinkPanel";
 import { LinkTrackingPanel } from "./LinkTrackingPanel";
+import { AutopilotPanel } from "./AutopilotPanel";
 
 export function DashboardShell() {
   const router = useRouter();
@@ -21,6 +22,7 @@ export function DashboardShell() {
   const [workspaceId, setWorkspaceId] = useState("");
   const [clients, setClients] = useState([]);
   const [clientId, setClientId] = useState("");
+  const [clientDetail, setClientDetail] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [posts, setPosts] = useState([]);
   const [selectedPostId, setSelectedPostId] = useState("");
@@ -30,6 +32,9 @@ export function DashboardShell() {
   const [approvalError, setApprovalError] = useState("");
   const [approvalLink, setApprovalLink] = useState(null);
   const [creatingApprovalLink, setCreatingApprovalLink] = useState(false);
+  const [savingStrategy, setSavingStrategy] = useState(false);
+  const [generatingDrafts, setGeneratingDrafts] = useState(false);
+  const [autopilotError, setAutopilotError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -51,6 +56,7 @@ export function DashboardShell() {
     if (!resolvedWorkspaceId) {
       setClients([]);
       setClientId("");
+      setClientDetail(null);
       return { workspaces: ws, clients: [] };
     }
 
@@ -66,6 +72,17 @@ export function DashboardShell() {
     setClientId(resolvedClientId);
 
     return { workspaces: ws, clients: cs, workspaceId: resolvedWorkspaceId, clientId: resolvedClientId };
+  }
+
+  async function loadClientDetail(nextClientId) {
+    if (!nextClientId || nextClientId === "all") {
+      setClientDetail(null);
+      return null;
+    }
+
+    const { client } = await apiRequest(`/clients/${nextClientId}`);
+    setClientDetail(client);
+    return client;
   }
 
   async function loadPostsForClient(nextClientId, nextClients) {
@@ -152,6 +169,7 @@ export function DashboardShell() {
 
     const loaded = await loadWorkspacesAndClients(nextUser?.defaultWorkspaceId, nextUser?.defaultClientId);
     await Promise.all([
+      loadClientDetail(loaded.clientId),
       loadProfilesForClient(loaded.clientId),
       refreshApprovalState(loaded.clientId, loaded.clients)
     ]);
@@ -198,6 +216,49 @@ export function DashboardShell() {
       setApprovalError(mutationError.message || "Approval action failed");
     } finally {
       setApprovalSubmitting(false);
+    }
+  }
+
+  async function saveStrategy(strategyPayload) {
+    if (!clientId || clientId === "all") {
+      return null;
+    }
+
+    setSavingStrategy(true);
+    setAutopilotError("");
+    try {
+      const { client } = await apiRequest(`/clients/${clientId}`, {
+        method: "PATCH",
+        body: JSON.stringify(strategyPayload)
+      });
+      setClientDetail(client);
+      return client;
+    } catch (saveError) {
+      setAutopilotError(saveError.message || "Failed to save content strategy");
+      throw saveError;
+    } finally {
+      setSavingStrategy(false);
+    }
+  }
+
+  async function generateDrafts(strategyPayload, generationPayload) {
+    if (!clientId || clientId === "all") {
+      return;
+    }
+
+    setGeneratingDrafts(true);
+    setAutopilotError("");
+    try {
+      await saveStrategy(strategyPayload);
+      await apiRequest(`/clients/${clientId}/generate-drafts`, {
+        method: "POST",
+        body: JSON.stringify(generationPayload)
+      });
+      await refreshApprovalState(clientId, clients, "");
+    } catch (generationError) {
+      setAutopilotError(generationError.message || "Failed to generate drafts");
+    } finally {
+      setGeneratingDrafts(false);
     }
   }
 
@@ -254,6 +315,7 @@ export function DashboardShell() {
               setWorkspaceId(nextWorkspaceId);
               setError("");
               setApprovalLink(null);
+              setAutopilotError("");
               try {
                 await apiRequest("/workspaces/current", {
                   method: "PATCH",
@@ -264,6 +326,7 @@ export function DashboardShell() {
                   ""
                 );
                 await Promise.all([
+                  loadClientDetail(nextClientId),
                   loadProfilesForClient(nextClientId),
                   refreshApprovalState(nextClientId, nextClients, "")
                 ]);
@@ -278,8 +341,10 @@ export function DashboardShell() {
               setClientId(nextClientId);
               setError("");
               setApprovalLink(null);
+              setAutopilotError("");
               try {
                 await Promise.all([
+                  loadClientDetail(nextClientId),
                   loadProfilesForClient(nextClientId),
                   refreshApprovalState(nextClientId, clients, "")
                 ]);
@@ -297,6 +362,7 @@ export function DashboardShell() {
               setClients(nextClients);
               setClientId(client.id);
               await Promise.all([
+                loadClientDetail(client.id),
                 loadProfilesForClient(client.id),
                 refreshApprovalState(client.id, nextClients, "")
               ]);
@@ -375,9 +441,18 @@ export function DashboardShell() {
               ? async (note) => handleApprovalMutation(`/posts/${selectedPost.id}/reject`, note, false)
               : null}
           />
+          <AutopilotPanel
+            client={clientDetail}
+            saving={savingStrategy}
+            generating={generatingDrafts}
+            error={autopilotError}
+            onSaveStrategy={saveStrategy}
+            onGenerateDrafts={generateDrafts}
+          />
           <LinkTrackingPanel clientId={clientId} selectedPostId={selectedPostId} />
           <PostComposer clientId={clientId} onCreated={async () => {
             await Promise.all([
+              loadClientDetail(clientId),
               loadProfilesForClient(clientId),
               refreshApprovalState(clientId, clients, selectedPostId)
             ]);

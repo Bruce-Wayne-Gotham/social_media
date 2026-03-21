@@ -3,7 +3,32 @@ const { postQueue } = require("../config/queue");
 const { normalizePlatform } = require("../utils/platforms");
 const { httpError } = require("../utils/httpError");
 const { assertClientAccess } = require("./accessService");
+const { generateDrafts: generateAutopilotDrafts } = require("./autopilotService");
 const { resolveMediaForPost } = require("./mediaAssetService");
+
+function normalizeTextList(values) {
+  return (values || []).map((value) => `${value}`.trim()).filter(Boolean);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildGenerationAuditNote(generationSource, phase) {
+  if (generationSource === "autopilot_stub") {
+    return phase === "requested"
+      ? "Autopilot routed this draft to the approvals queue in Safe Mode"
+      : "Created by Autopilot v1 stub generator";
+  }
+
+  if (generationSource === "autopilot_ai") {
+    return phase === "requested"
+      ? "Autopilot routed this AI-generated draft to the approvals queue in Safe Mode"
+      : "Created by the configured Autopilot provider";
+  }
+
+  return null;
+}
 
 async function getDefaultClientIdForUser(userId) {
   const result = await query("SELECT default_client_id FROM users WHERE id = $1", [userId]);
@@ -56,6 +81,64 @@ async function getApprovalEvents(postId) {
   return result.rows;
 }
 
+async function getClientStrategy(clientId) {
+  const result = await query(
+    `SELECT
+       id,
+       workspace_id,
+       name,
+       brand_voice_notes,
+       content_do,
+       content_dont,
+       content_pillars,
+       cta_style,
+       default_hashtags,
+       banned_terms,
+       required_disclaimer
+     FROM clients
+     WHERE id = $1`,
+    [clientId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    throw httpError("Client not found", 404);
+  }
+
+  return {
+    ...row,
+    brand_voice_notes: row.brand_voice_notes || "",
+    content_do: normalizeTextList(row.content_do),
+    content_dont: normalizeTextList(row.content_dont),
+    content_pillars: normalizeTextList(row.content_pillars),
+    cta_style: row.cta_style || "",
+    default_hashtags: normalizeTextList(row.default_hashtags),
+    banned_terms: normalizeTextList(row.banned_terms),
+    required_disclaimer: row.required_disclaimer || ""
+  };
+}
+
+function evaluateRiskChecks(content, strategy) {
+  const flags = [];
+  const normalizedContent = `${content || ""}`.toLowerCase();
+
+  const matchedTerms = normalizeTextList(strategy.banned_terms).filter((term) => {
+    const escaped = escapeRegExp(term.toLowerCase());
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(normalizedContent);
+  });
+
+  if (matchedTerms.length) {
+    flags.push(`Contains banned terms: ${matchedTerms.join(", ")}`);
+  }
+
+  const requiredDisclaimer = `${strategy.required_disclaimer || ""}`.trim();
+  if (requiredDisclaimer && !normalizedContent.includes(requiredDisclaimer.toLowerCase())) {
+    flags.push("Missing required disclaimer");
+  }
+
+  return flags;
+}
+
 async function getPostSummaryById(postId) {
   const result = await query(
     `SELECT
@@ -65,6 +148,8 @@ async function getPostSummaryById(postId) {
        p.content,
        p.media_url,
        p.hashtags,
+       p.risk_flags,
+       p.generation_source,
        p.scheduled_time,
        p.approval_status,
        p.approval_requested_at,
@@ -145,6 +230,8 @@ async function getPostsByClient(userId, clientId) {
        p.content,
        p.media_url,
        p.hashtags,
+       p.risk_flags,
+       p.generation_source,
        p.scheduled_time,
        p.approval_status,
        p.approval_requested_at,
@@ -185,6 +272,8 @@ async function getPendingApprovalPostsByClient(clientId) {
        p.content,
        p.media_url,
        p.hashtags,
+       p.risk_flags,
+       p.generation_source,
        p.scheduled_time,
        p.approval_status,
        p.approval_requested_at,
@@ -223,14 +312,23 @@ async function getPostsByUser(userId) {
 
 async function createPostForClient(userId, clientId, payload) {
   await assertClientAccess(userId, clientId);
+  const strategy = await getClientStrategy(clientId);
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
     const media = await resolveMediaForPost(userId, clientId, payload.mediaAssetId || null, payload.mediaUrl || null);
+    const approvalStatus = payload.approvalStatus || "draft";
+    const publishStatus = payload.status || "draft";
+    const riskFlags = Array.isArray(payload.riskFlags)
+      ? payload.riskFlags
+      : evaluateRiskChecks(payload.content, strategy);
+    const generationSource = payload.generationSource || "manual";
+    const hashtags = normalizeTextList(payload.hashtags);
+
     const postResult = await client.query(
-      `INSERT INTO posts (user_id, client_id, media_asset_id, content, media_url, hashtags, scheduled_time, approval_status, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO posts (user_id, client_id, media_asset_id, content, media_url, hashtags, risk_flags, generation_source, scheduled_time, approval_status, approval_requested_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $10 = 'needs_approval' THEN NOW() ELSE NULL END, $11)
        RETURNING *`,
       [
         userId,
@@ -238,10 +336,12 @@ async function createPostForClient(userId, clientId, payload) {
         media.mediaAssetId,
         payload.content,
         media.mediaUrl,
-        payload.hashtags || [],
+        hashtags,
+        riskFlags,
+        generationSource,
         payload.scheduledTime || null,
-        "draft",
-        "draft"
+        approvalStatus,
+        publishStatus
       ]
     );
 
@@ -262,8 +362,20 @@ async function createPostForClient(userId, clientId, payload) {
       actorUserId: userId,
       action: "created",
       fromStatus: null,
-      toStatus: "draft"
+      toStatus: approvalStatus,
+      note: buildGenerationAuditNote(generationSource, "created")
     });
+
+    if (approvalStatus === "needs_approval") {
+      await insertApprovalEvent(client, {
+        postId: post.id,
+        actorUserId: userId,
+        action: "requested",
+        fromStatus: "draft",
+        toStatus: "needs_approval",
+        note: buildGenerationAuditNote(generationSource, "requested")
+      });
+    }
 
     await client.query("COMMIT");
     return getPostByIdForUser(userId, post.id);
@@ -275,6 +387,41 @@ async function createPostForClient(userId, clientId, payload) {
   }
 }
 
+async function generateDraftsForClient(userId, clientId, payload) {
+  const access = await assertClientAccess(userId, clientId);
+  const strategy = await getClientStrategy(clientId);
+
+  const generation = await generateAutopilotDrafts({
+    workspaceId: access.workspace_id,
+    clientId,
+    userId,
+    clientName: strategy.name,
+    strategy,
+    count: payload.count,
+    platforms: payload.platforms
+  });
+
+  const posts = [];
+  for (const draft of generation.drafts) {
+    const post = await createPostForClient(userId, clientId, {
+      content: draft.content,
+      mediaAssetId: null,
+      mediaUrl: "",
+      hashtags: draft.hashtags?.length ? draft.hashtags : strategy.default_hashtags,
+      scheduledTime: null,
+      platforms: payload.platforms,
+      approvalStatus: "needs_approval",
+      status: "draft",
+      generationSource: "autopilot_ai"
+    });
+
+    posts.push(post);
+  }
+
+  return posts;
+}
+
+
 async function updatePost(userId, postId, patch) {
   const existing = await getPostByIdForUser(userId, postId);
   if (!existing) {
@@ -285,12 +432,13 @@ async function updatePost(userId, postId, patch) {
     throw httpError("Cannot edit a post that is publishing or published", 409);
   }
 
+  const strategy = await getClientStrategy(existing.client_id);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const nextContent = patch.content ?? existing.content;
-    const nextHashtags = patch.hashtags ?? existing.hashtags;
+    const nextHashtags = normalizeTextList(patch.hashtags ?? existing.hashtags);
     const nextScheduledTime = patch.scheduledTime ?? existing.scheduled_time;
 
     const nextMediaAssetId = Object.prototype.hasOwnProperty.call(patch, "mediaAssetId")
@@ -308,20 +456,23 @@ async function updatePost(userId, postId, patch) {
       nextPublishStatus = "draft";
     }
 
+    const nextRiskFlags = evaluateRiskChecks(nextContent, strategy);
+
     await client.query(
       `UPDATE posts
        SET media_asset_id = $2,
            content = $3,
            media_url = $4,
            hashtags = $5,
-           scheduled_time = $6,
-           approval_status = $7,
-           approved_at = CASE WHEN $7 = 'approved' THEN approved_at ELSE NULL END,
-           approved_by = CASE WHEN $7 = 'approved' THEN approved_by ELSE NULL END,
-           status = $8,
+           risk_flags = $6,
+           scheduled_time = $7,
+           approval_status = $8,
+           approved_at = CASE WHEN $8 = 'approved' THEN approved_at ELSE NULL END,
+           approved_by = CASE WHEN $8 = 'approved' THEN approved_by ELSE NULL END,
+           status = $9,
            updated_at = NOW()
        WHERE id = $1`,
-      [postId, media.mediaAssetId, nextContent, media.mediaUrl, nextHashtags, nextScheduledTime, nextApprovalStatus, nextPublishStatus]
+      [postId, media.mediaAssetId, nextContent, media.mediaUrl, nextHashtags, nextRiskFlags, nextScheduledTime, nextApprovalStatus, nextPublishStatus]
     );
 
     if (existing.approval_status === "approved" && nextApprovalStatus !== "approved") {
@@ -351,7 +502,8 @@ async function updatePost(userId, postId, patch) {
       actorUserId: userId,
       action: "updated",
       fromStatus: existing.approval_status,
-      toStatus: nextApprovalStatus
+      toStatus: nextApprovalStatus,
+      note: nextRiskFlags.length ? `Risk checks: ${nextRiskFlags.join("; ")}` : null
     });
 
     if (existing.approval_status === "approved" && nextApprovalStatus !== "approved") {
@@ -648,6 +800,7 @@ module.exports = {
     return createPostForClient(userId, clientId, payload);
   },
   createPostForClient,
+  generateDraftsForClient,
   getPendingApprovalPostsByClient,
   getPostById: getPostByIdForUser,
   getPostByIdForClient,
@@ -659,3 +812,10 @@ module.exports = {
   requestApproval,
   updatePost
 };
+
+
+
+
+
+
+

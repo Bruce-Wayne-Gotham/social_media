@@ -24,6 +24,16 @@ export function PostList({ posts = [], clientsById = {}, selectedPostId = "", on
                     {post.approval_status}
                   </span>
                 ) : null}
+                {post.generation_source === "autopilot_ai" ? (
+                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-800">
+                    autopilot ai
+                  </span>
+                ) : null}
+                {Array.isArray(post.risk_flags) && post.risk_flags.length ? (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">
+                    {post.risk_flags.length} risk flag{post.risk_flags.length === 1 ? "" : "s"}
+                  </span>
+                ) : null}
                 <span>{post.status}</span>
                 <span>{new Date(post.created_at).toLocaleString()}</span>
                 {post.scheduled_time ? <span>Scheduled: {new Date(post.scheduled_time).toLocaleString()}</span> : null}

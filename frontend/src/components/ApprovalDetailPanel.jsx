@@ -64,15 +64,28 @@ export function ApprovalDetailPanel({
             <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
               {clientsById[post.client_id] || post.client_name ? <span>{clientsById[post.client_id] || post.client_name}</span> : null}
               <span className={`rounded-full border px-3 py-1 ${statusBadge(post.approval_status)}`}>{post.approval_status}</span>
+              {post.generation_source === "autopilot_stub" || post.generation_source === "autopilot_ai" ? (
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-800">{post.generation_source === "autopilot_ai" ? "autopilot ai" : "autopilot stub"}</span>
+              ) : null}
               <span>{post.status}</span>
               <span>{new Date(post.created_at).toLocaleString()}</span>
             </div>
             <p className="mt-4 whitespace-pre-wrap text-base">{post.content}</p>
             {post.media_url ? (
-              <p className="mt-3 text-sm text-[var(--muted)] break-all">Media: {post.media_url}</p>
+              <p className="mt-3 break-all text-sm text-[var(--muted)]">Media: {post.media_url}</p>
             ) : null}
             {post.scheduled_time ? (
               <p className="mt-2 text-sm text-[var(--muted)]">Scheduled: {new Date(post.scheduled_time).toLocaleString()}</p>
+            ) : null}
+            {Array.isArray(post.risk_flags) && post.risk_flags.length ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Risk checks</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {post.risk_flags.map((flag) => (
+                    <li key={flag}>{flag}</li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             <div className="mt-3 flex flex-wrap gap-2 text-sm">
               {(post.targets || []).map((target) => (
@@ -168,3 +181,5 @@ export function ApprovalDetailPanel({
     </section>
   );
 }
+
+

@@ -1,5 +1,6 @@
-const { updateClientSchema } = require("../validators/clientValidators");
+const { generateDraftsSchema, updateClientSchema } = require("../validators/clientValidators");
 const clientService = require("../services/clientService");
+const postService = require("../services/postService");
 
 async function getClient(req, res, next) {
   try {
@@ -32,9 +33,19 @@ async function deleteClient(req, res, next) {
   }
 }
 
+async function generateDrafts(req, res, next) {
+  try {
+    const payload = generateDraftsSchema.parse(req.body);
+    const posts = await postService.generateDraftsForClient(req.user.sub, req.params.clientId, payload);
+    res.status(201).json({ posts });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   deleteClient,
+  generateDrafts,
   getClient,
   updateClient
 };
-

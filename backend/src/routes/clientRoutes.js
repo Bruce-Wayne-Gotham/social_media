@@ -15,6 +15,7 @@ router.use(requireAuth);
 router.get("/:clientId", clientController.getClient);
 router.patch("/:clientId", clientController.updateClient);
 router.delete("/:clientId", clientController.deleteClient);
+router.post("/:clientId/generate-drafts", clientController.generateDrafts);
 
 router.post("/:clientId/approval-links", approvalMagicLinkController.create);
 router.get("/:clientId/media-assets", mediaAssetController.listForClient);

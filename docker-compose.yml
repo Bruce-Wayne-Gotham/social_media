@@ -28,6 +28,16 @@ services:
       TOKEN_ENCRYPTION_SECRET: "01234567890123456789012345678901"
       APP_BASE_URL: http://localhost:4000
       FRONTEND_URL: http://localhost:3000
+      AUTOPILOT_AI_ENABLED: 
+      AUTOPILOT_AI_PROVIDER: 
+      AUTOPILOT_AI_RATE_LIMIT_WINDOW_SECONDS: 
+      AUTOPILOT_AI_RATE_LIMIT_MAX_DRAFTS: 
+      AUTOPILOT_AI_RATE_LIMIT_MAX_REQUESTS: 
+      AUTOPILOT_REQUEST_TIMEOUT_MS: 
+      OPENAI_API_KEY: 
+      OPENAI_MODEL: 
+      OPENAI_BASE_URL: 
+      OPENAI_PROJECT_ID: 
     ports:
       - "4000:4000"
     depends_on:
@@ -69,3 +79,5 @@ services:
 
 volumes:
   postgres_data:
+
+
