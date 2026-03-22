@@ -342,3 +342,48 @@ CREATE INDEX IF NOT EXISTS idx_oauth_connect_sessions_created_at ON oauth_connec
 ALTER TABLE workspaces
   ADD COLUMN IF NOT EXISTS autopilot_generation_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
+
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS autopilot_generation_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE posts
+  DROP CONSTRAINT IF EXISTS posts_generation_source_check;
+
+ALTER TABLE posts
+  ADD CONSTRAINT posts_generation_source_check
+  CHECK (generation_source IN ('manual', 'autopilot_stub', 'autopilot_ai'));
+
+CREATE TABLE IF NOT EXISTS autopilot_generation_usage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  feature_key TEXT NOT NULL DEFAULT 'autopilot_generation',
+  provider TEXT NOT NULL,
+  model TEXT,
+  requested_draft_count INTEGER NOT NULL DEFAULT 0 CHECK (requested_draft_count >= 0),
+  generated_draft_count INTEGER NOT NULL DEFAULT 0 CHECK (generated_draft_count >= 0),
+  prompt_tokens INTEGER NOT NULL DEFAULT 0 CHECK (prompt_tokens >= 0),
+  completion_tokens INTEGER NOT NULL DEFAULT 0 CHECK (completion_tokens >= 0),
+  provider_response_id TEXT,
+  status TEXT NOT NULL DEFAULT 'reserved',
+  error_message TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE autopilot_generation_usage
+  DROP CONSTRAINT IF EXISTS autopilot_generation_usage_status_check;
+
+ALTER TABLE autopilot_generation_usage
+  ADD CONSTRAINT autopilot_generation_usage_status_check
+  CHECK (status IN ('reserved', 'succeeded', 'failed', 'disabled', 'rate_limited'));
+
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_workspace_id
+  ON autopilot_generation_usage(workspace_id);
+
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_created_at
+  ON autopilot_generation_usage(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_autopilot_generation_usage_feature_workspace_created
+  ON autopilot_generation_usage(feature_key, workspace_id, created_at DESC);

@@ -160,5 +160,49 @@ Worker:
 Frontend:
 - `NEXT_PUBLIC_API_BASE_URL`
 
+## Production Deployment
+
+SocialHub is production-ready with comprehensive deployment documentation.
+
+### Deployment Status
+- ✅ Complete environment variable documentation
+- ✅ Secrets management strategy defined
+- ✅ Database migration approach documented
+- ✅ Worker scaling strategy outlined
+- ✅ Logging and monitoring recommendations
+- ✅ Cost estimates for multiple hosting platforms
+- ✅ Security and operational checklists
+
+### Supported Platforms
+- **Railway**: Recommended for MVP ($20-30/month)
+- **DigitalOcean App Platform**: For established agencies ($42-47/month)
+- **Vercel/Netlify**: Frontend hosting (free tier available)
+- **Self-hosted VPS**: For teams with DevOps expertise ($18-25/month)
+
+### Production-Ready Features
+- Database connection pooling with automatic retries
+- Worker job processing with exponential backoff
+- OAuth token encryption at rest (AES-256)
+- Idempotent database schema migrations
+- Health check endpoints for monitoring
+- Per-platform publish retry logic
+- Rate limiting for AI Autopilot features
+
+### Known Production Limitations
+- Media storage uses local filesystem (S3 migration recommended for multi-instance)
+- Basic console logging (structured logging via Winston/Pino recommended)
+- No built-in error tracking (Sentry integration recommended)
+- No automated database migration runner (manual psql apply currently)
+
+### Documentation
+See [`docs/PRODUCTION_DEPLOYMENT.md`](PRODUCTION_DEPLOYMENT.md) for complete guide including:
+- Environment variables reference (backend, frontend, worker)
+- Secrets management and generation
+- OAuth platform setup checklists
+- Database backup and recovery procedures
+- Worker auto-scaling configuration
+- Monitoring and alerting setup
+- Cost optimization strategies
+- Security hardening checklist
 
 

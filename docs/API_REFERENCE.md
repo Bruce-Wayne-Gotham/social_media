@@ -44,7 +44,7 @@ Clients:
 - `POST /clients/:clientId/generate-drafts`
   - body: `{ "count": 3, "platforms": ["linkedin", "instagram", "youtube"] }`
   - returns: `{ "posts": [{ ... }] }`
-  - errors: `429` when the workspace rate limit or draft quota is exceeded, `503` when Autopilot is disabled globally or for the workspace, `502` when the provider fails
+  - errors: `429` when the workspace request or draft limit is exceeded, `503` when Autopilot is disabled globally or for the workspace, `502` when the provider fails
 - `GET /clients/:clientId/media-assets`
   - returns: `{ "assets": [{ "id", "client_id", "original_filename", "content_type", "file_size_bytes", "public_url", "status" }] }`
 - `POST /clients/:clientId/media-assets/upload-url`
@@ -134,6 +134,8 @@ Worker Token Resolution (Current):
 - Note: social profiles are stored in the `social_accounts` table (legacy name).
 - Targets can optionally specify `social_account_id` (social profile id) on `post_targets`.
 - The worker resolves tokens by `post.client_id` and prefers `post_targets.social_account_id` when present.
+
+
 
 
 

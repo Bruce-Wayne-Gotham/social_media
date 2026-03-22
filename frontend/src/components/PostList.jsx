@@ -24,7 +24,7 @@ export function PostList({ posts = [], clientsById = {}, selectedPostId = "", on
                     {post.approval_status}
                   </span>
                 ) : null}
-                {post.generation_source === "autopilot_ai" ? (
+                {`${post.generation_source || ""}`.startsWith("autopilot_") ? (
                   <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-800">
                     autopilot ai
                   </span>
@@ -56,3 +56,4 @@ export function PostList({ posts = [], clientsById = {}, selectedPostId = "", on
     </section>
   );
 }
+

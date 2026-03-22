@@ -140,6 +140,109 @@ docker compose up --build
 - `POST /api/approval-links/:token/posts/:postId/approve`
 - `POST /api/approval-links/:token/posts/:postId/reject`
 
+## Production Deploy
+
+SocialHub is production-ready and can be deployed to managed platforms or self-hosted infrastructure.
+
+### Quick Start (Railway - Recommended)
+
+**Estimated Cost**: ~$20/month (includes PostgreSQL, Redis, Backend, Worker)
+
+1. **Create Railway Project**
+   - Sign up at [railway.app](https://railway.app)
+   - Create new project from GitHub repo
+   - Add PostgreSQL and Redis plugins
+
+2. **Configure Services**
+   - Deploy `backend`, `worker`, and `frontend` (or use Vercel for frontend)
+   - Set environment variables from [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md)
+
+3. **Set Up OAuth**
+   - LinkedIn: https://www.linkedin.com/developers
+   - Instagram: https://developers.facebook.com
+   - YouTube: https://console.cloud.google.com
+   - Add redirect URIs: `https://api.yourdomain.com/api/social-accounts/oauth/{platform}/callback`
+
+4. **Deploy Database Schema**
+   ```bash
+   psql $DATABASE_URL < infra/sql/schema.sql
+   ```
+
+### Essential Environment Variables
+
+**Backend** (30+ variables):
+- `DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `TOKEN_ENCRYPTION_SECRET`
+- `APP_BASE_URL`, `FRONTEND_URL`
+- `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`
+- `INSTAGRAM_CLIENT_ID`, `INSTAGRAM_CLIENT_SECRET`
+- `YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`
+- Optional: `OPENAI_API_KEY` (for AI Autopilot)
+
+**Worker** (15+ variables):
+- `DATABASE_URL`, `REDIS_URL`, `TOKEN_ENCRYPTION_SECRET`
+- `BACKEND_URL`
+- OAuth credentials (same as backend)
+
+**Frontend** (1 variable):
+- `NEXT_PUBLIC_API_BASE_URL`
+
+See complete list with descriptions in [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md).
+
+### Deployment Options & Costs
+
+| Platform | Monthly Cost | Best For |
+|----------|--------------|----------|
+| **Railway** | $20-30 | MVP, fast iteration |
+| **DigitalOcean App Platform** | $42-47 | Established agencies |
+| **Self-hosted VPS** | $18-25 | DevOps experience |
+
+### Architecture
+
+```
+Frontend (Next.js) -> Backend (Express API) -> PostgreSQL
+                            |
+                            v
+                      Redis Queue <- Worker (BullMQ)
+```
+
+### Key Features for Production
+
+- ✅ SSL/TLS automatic (managed platforms)
+- ✅ Database connection pooling and retries
+- ✅ Worker auto-scaling with BullMQ
+- ✅ OAuth token encryption at rest
+- ✅ Idempotent database migrations
+- ✅ Health check endpoints
+- ✅ Per-target retry with exponential backoff
+- ⚠️ Media storage: local filesystem (migrate to S3 for multi-instance)
+- ⚠️ Logging: basic console logs (add Sentry/LogTail recommended)
+
+### Complete Deployment Guide
+
+For comprehensive production deployment including:
+- Complete environment variables reference
+- Secrets management strategy
+- Database migration approach
+- Worker scaling configuration
+- Logging and error monitoring setup
+- Cost estimates by scale
+- Security checklist
+- Disaster recovery procedures
+
+**See**: [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md)
+
+### Post-Deployment Checklist
+
+- [ ] Database schema applied successfully
+- [ ] All environment variables configured
+- [ ] OAuth redirect URIs registered with platforms
+- [ ] Health check endpoint responding (`/health`)
+- [ ] Test post creation and approval flow
+- [ ] Verify worker processing scheduled posts
+- [ ] Test publishing to LinkedIn/Instagram/YouTube
+- [ ] Set up uptime monitoring (UptimeRobot, BetterUptime)
+- [ ] Configure error tracking (Sentry recommended)
+
 ## Notes
 
 - Autopilot v1 now calls a real provider behind a clean service boundary with a workspace feature flag, rate limiting, and usage tracking.
@@ -151,8 +254,9 @@ docker compose up --build
 
 ## Project Docs
 
-- Current capabilities and limitations: `docs/CURRENT_STATE.md`
-- API reference: `docs/API_REFERENCE.md`
+- **Production deployment guide**: [`docs/PRODUCTION_DEPLOYMENT.md`](docs/PRODUCTION_DEPLOYMENT.md)
+- Current capabilities and limitations: [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)
+- API reference: [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)
 
 
 

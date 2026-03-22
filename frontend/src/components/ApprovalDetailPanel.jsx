@@ -64,7 +64,7 @@ export function ApprovalDetailPanel({
             <div className="flex flex-wrap items-center gap-2 text-sm text-[var(--muted)]">
               {clientsById[post.client_id] || post.client_name ? <span>{clientsById[post.client_id] || post.client_name}</span> : null}
               <span className={`rounded-full border px-3 py-1 ${statusBadge(post.approval_status)}`}>{post.approval_status}</span>
-              {post.generation_source === "autopilot_stub" || post.generation_source === "autopilot_ai" ? (
+              {`${post.generation_source || ""}`.startsWith("autopilot_") ? (
                 <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-sky-800">{post.generation_source === "autopilot_ai" ? "autopilot ai" : "autopilot stub"}</span>
               ) : null}
               <span>{post.status}</span>
@@ -181,5 +181,6 @@ export function ApprovalDetailPanel({
     </section>
   );
 }
+
 
 

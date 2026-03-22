@@ -21,7 +21,7 @@ function getAutopilotConfig(env = process.env) {
 
   const openAiApiKey = (env.OPENAI_API_KEY || env.AUTOPILOT_OPENAI_API_KEY || "").trim();
   const openAiBaseUrl = (env.OPENAI_BASE_URL || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
-  const openAiModel = (env.OPENAI_MODEL || env.AUTOPILOT_MODEL || "gpt-5-mini").trim();
+  const openAiModel = (env.OPENAI_MODEL || env.AUTOPILOT_OPENAI_MODEL || env.AUTOPILOT_MODEL || "gpt-5-mini").trim();
   const openAiProject = (env.OPENAI_PROJECT_ID || "").trim();
   const requestTimeoutMs = parseNumber(env.AUTOPILOT_REQUEST_TIMEOUT_MS, 30000);
   const enabled = parseBoolean(env.AUTOPILOT_AI_ENABLED ?? env.AUTOPILOT_ENABLED, false);
@@ -43,11 +43,14 @@ function getAutopilotConfig(env = process.env) {
     rateLimitWindowMinutes: Math.max(1, Math.ceil(rateLimitWindowMs / 60000)),
     rateLimitMaxRequests,
     rateLimitMaxDrafts,
+    maxRequestsPerWindow: rateLimitMaxRequests,
+    maxDraftsPerWindow: rateLimitMaxDrafts,
     requestTimeoutMs,
     openAiApiKey,
     openAiBaseUrl,
     openAiModel,
     openAiProject,
+    model: openAiModel,
     openai: {
       apiKey: openAiApiKey,
       baseUrl: openAiBaseUrl,

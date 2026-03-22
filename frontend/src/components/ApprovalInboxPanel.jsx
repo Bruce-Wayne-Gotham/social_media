@@ -33,7 +33,7 @@ export function ApprovalInboxPanel({ posts = [], clientsById = {}, selectedPostI
               <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted)]">
                 {clientsById[post.client_id] ? <span>{clientsById[post.client_id]}</span> : null}
                 <span>{post.approval_status}</span>
-                {post.generation_source === "autopilot_ai" ? <span>autopilot ai</span> : null}
+                {`${post.generation_source || ""}`.startsWith("autopilot_") ? <span>autopilot ai</span> : null}
                 {Array.isArray(post.risk_flags) && post.risk_flags.length ? <span>{post.risk_flags.length} risk flag{post.risk_flags.length === 1 ? "" : "s"}</span> : null}
                 {post.approval_requested_at ? <span>Requested {formatWhen(post.approval_requested_at)}</span> : null}
               </div>
@@ -45,3 +45,4 @@ export function ApprovalInboxPanel({ posts = [], clientsById = {}, selectedPostI
     </section>
   );
 }
+
