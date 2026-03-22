@@ -40,6 +40,7 @@ function createAutopilotUsageService({ queryFn = query, config = getAutopilotCon
     userId,
     provider,
     model,
+    platforms,
     status,
     requestedDraftCount,
     generatedDraftCount,
@@ -59,13 +60,14 @@ function createAutopilotUsageService({ queryFn = query, config = getAutopilotCon
          status,
          requested_count,
          generated_count,
+         platforms,
          input_tokens,
          output_tokens,
          total_tokens,
          provider_request_id,
          error_message
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, created_at`,
       [
         workspaceId,
@@ -76,6 +78,7 @@ function createAutopilotUsageService({ queryFn = query, config = getAutopilotCon
         status,
         requestedDraftCount,
         generatedDraftCount,
+        Array.isArray(platforms) ? platforms : [],
         promptTokens,
         outputTokens,
         totalTokens,

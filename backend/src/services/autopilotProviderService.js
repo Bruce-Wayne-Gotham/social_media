@@ -79,95 +79,31 @@ function buildDraftSchema(count) {
   };
 }
 
-function extractOutputText(payload) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text;
+function createAutopilotProviderService({ config = getAutopilotConfig(), fetchImpl } = {}) {
+  if (config.provider !== "openai") {
+    throw httpError(`Unsupported autopilot provider: ${config.provider}`, 500);
   }
 
-  const messages = Array.isArray(payload?.output) ? payload.output : [];
-  for (const message of messages) {
-    for (const content of message?.content || []) {
-      if (content?.type === "output_text" && typeof content.text === "string" && content.text.trim()) {
-        return content.text;
-      }
-    }
-  }
+  const provider = createAutopilotProvider({
+    ...config,
+    openAiApiKey: config.openAiApiKey || config.openai?.apiKey || "",
+    openAiBaseUrl: config.openAiBaseUrl || config.openai?.baseUrl || "",
+    openAiModel: config.openAiModel || config.openai?.model || "",
+    openAiProject: config.openAiProject || config.openai?.project || "",
+    requestTimeoutMs: config.requestTimeoutMs || config.openai?.requestTimeoutMs,
+    fetchImpl
+  });
 
-  return "";
-}
-
-function createAutopilotProviderService({ config = getAutopilotConfig(), fetchImpl = global.fetch } = {}) {
   return {
-    async generateDrafts({ clientName, strategy, count, platforms }) {
-      if (config.provider === "stub") {
-        return {
-          provider: "stub",
-          generationSource: "autopilot_stub",
-          drafts: Array.from({ length: count }, (_, index) => buildStubDraft({
-            clientName,
-            strategy,
-            index,
-            platforms
-          })),
-          usage: {
-            totalTokens: 0
-          }
-        };
-      }
-
-      if (config.provider !== "openai") {
-        throw httpError(`Unsupported autopilot provider: ${config.provider}`, 500);
-      }
-
-      if (!config.openai?.apiKey) {
-        throw httpError("Autopilot AI provider is not configured", 503);
-      }
-
-      const response = await fetchImpl(`${config.openai.baseUrl}/responses`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.openai.apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: config.openai.model,
-          store: false,
-          input: buildOpenAiInput({ clientName, strategy, count, platforms }),
-          text: {
-            format: {
-              type: "json_schema",
-              name: "autopilot_drafts",
-              strict: true,
-              schema: buildDraftSchema(count)
-            }
-          }
-        })
-      });
-
-      const payload = JSON.parse(await response.text());
-      const outputText = extractOutputText(payload);
-      if (!outputText) {
-        throw httpError("Autopilot provider returned invalid structured output", 502);
-      }
-
-      let parsed;
-      try {
-        parsed = JSON.parse(outputText);
-      } catch (_error) {
-        throw httpError("Autopilot provider returned invalid structured output", 502);
-      }
-
-      const drafts = Array.isArray(parsed?.drafts) ? parsed.drafts : null;
-      if (!Array.isArray(drafts) || drafts.length !== count) {
-        throw httpError("Autopilot provider returned invalid structured output", 502);
-      }
-
+    provider: provider.name,
+    async generateDrafts(input) {
+      const result = await provider.generateDrafts(input);
       return {
-        provider: "openai",
-        generationSource: "autopilot_openai",
-        drafts: drafts.map((draft) => `${draft.content || ""}`.trim()),
+        provider: result.provider,
+        generationSource: "autopilot_ai",
+        drafts: result.drafts.map((draft) => draft.content),
         usage: {
-          totalTokens: payload?.usage?.total_tokens || 0
+          totalTokens: result.usage?.totalTokens || 0
         }
       };
     }

@@ -3,6 +3,7 @@ const { encrypt } = require("../utils/crypto");
 const { normalizePlatform } = require("../utils/platforms");
 const { httpError } = require("../utils/httpError");
 const { assertClientAccess } = require("./accessService");
+const { assertWithinWorkspacePlanLimit, countAdditionalProfilesForClient } = require("./billingService");
 
 async function getDefaultClientIdForUser(userId) {
   const result = await query("SELECT default_client_id FROM users WHERE id = $1", [userId]);
@@ -14,11 +15,25 @@ async function getDefaultClientIdForUser(userId) {
 }
 
 async function upsertSocialAccountForClient(userId, clientId, payload) {
-  await assertClientAccess(userId, clientId);
+  const access = await assertClientAccess(userId, clientId);
 
   const providerAccountId = payload.providerAccountId || payload.accountName;
   if (!providerAccountId) {
     throw httpError("Missing provider account identifier for social profile", 400);
+  }
+
+  const additionalProfiles = await countAdditionalProfilesForClient(
+    clientId,
+    normalizePlatform(payload.platform),
+    [providerAccountId]
+  );
+
+  if (additionalProfiles > 0) {
+    await assertWithinWorkspacePlanLimit({
+      workspaceId: access.workspace_id,
+      metric: "profiles",
+      amount: additionalProfiles
+    });
   }
 
   const result = await query(

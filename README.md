@@ -27,6 +27,7 @@ SocialHub is a minimal agency-first SaaS MVP for managing client content workflo
 - Client-scoped tracked links with UTM builder, short links, and click reporting
 - Redis queue worker for scheduled publishing
 - Dashboard for post history, approvals inbox, link tracking, and publish status
+- Stripe-backed billing MVP with one free plan, one paid plan, workspace usage counters, and server-side limits
 - Client content strategy settings for Autopilot v1
 - AI-backed Autopilot v1 draft generation into `needs_approval`
 - Internal risk checks for banned terms and missing required disclaimers
@@ -62,7 +63,7 @@ docker compose up --build
 - Error like `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` means the Docker daemon is not running. Start Docker Desktop (or run `sudo systemctl start docker` on Linux) and wait until it reports "Running", then retry `docker compose up --build`.
 - If Docker Desktop is running but the error persists on Windows, open PowerShell and run `wsl --status` to confirm WSL 2 is installed. If it is not, enable WSL 2 and restart Docker Desktop.
 
-### How To Test Approvals + Autopilot + Media Uploads + Link Tracking (Local)
+### How To Test Approvals + Autopilot + Media Uploads + Link Tracking + Billing (Local)
 
 1. Recreate the database after schema changes: `docker compose down -v`
 2. Start the stack: `docker compose up --build`
@@ -76,6 +77,7 @@ docker compose up --build
 10. Request approval, add a comment, then approve or reject it from the dashboard.
 11. Generate a client approval magic link and open it in a private window to review the same inbox externally.
 12. Open the link tracking panel, build a tracked link with UTM values, copy the short link, then open `/l/<code>` and confirm the click totals increase.
+13. Add Stripe env vars, open the billing panel, start checkout for the paid plan, and confirm the webhook upgrades the workspace plan and usage counters remain visible in the dashboard.
 
 ## API Overview
 
@@ -104,6 +106,12 @@ docker compose up --build
 - `PATCH /api/workspaces/current`
 - `GET /api/workspaces/:workspaceId/clients`
 - `POST /api/workspaces/:workspaceId/clients`
+
+### Billing
+
+- `GET /api/billing/workspaces/:workspaceId`
+- `POST /api/billing/workspaces/:workspaceId/checkout`
+- `POST /api/billing/webhooks/stripe`
 
 ### Clients
 
@@ -245,6 +253,8 @@ For comprehensive production deployment including:
 
 ## Notes
 
+- Billing MVP now supports one free plan and one paid Stripe plan with server-side limits for clients, social profiles, posts per month, and AI credits.
+- Dashboard billing counters are workspace-scoped and show current usage for seats, clients, profiles, posts this month, and AI credits this month.
 - Autopilot v1 now calls a real provider behind a clean service boundary with a workspace feature flag, rate limiting, and usage tracking.
 - Generated drafts never auto-publish. They are created directly in the approvals queue and can be disabled via `AUTOPILOT_AI_ENABLED=false` or the workspace feature flag.
 - Publisher modules currently include production-friendly service boundaries and request payload shaping. Replace the placeholder API calls with real platform credentials and endpoints before deploying.

@@ -2,6 +2,7 @@ const { query } = require("../config/db");
 const { encrypt, decrypt } = require("../utils/crypto");
 const { httpError } = require("../utils/httpError");
 const { assertClientAccess } = require("./accessService");
+const { assertWithinWorkspacePlanLimit, countAdditionalProfilesForClient } = require("./billingService");
 
 async function createSession({ userId, clientId, platform, accessToken, refreshToken, expiry, candidates }) {
   const result = await query(
@@ -50,7 +51,7 @@ async function consumeSession(userId, sessionId, { clientId, providerAccountIds 
     throw httpError("Client is required", 400);
   }
 
-  await assertClientAccess(userId, resolvedClientId);
+  const access = await assertClientAccess(userId, resolvedClientId);
 
   const candidates = Array.isArray(session.profile_candidates) ? session.profile_candidates : [];
   const selected = new Set(providerAccountIds || []);
@@ -58,6 +59,20 @@ async function consumeSession(userId, sessionId, { clientId, providerAccountIds 
 
   if (selectedCandidates.length === 0) {
     throw httpError("Select at least one profile to connect", 400);
+  }
+
+  const additionalProfiles = await countAdditionalProfilesForClient(
+    resolvedClientId,
+    session.platform,
+    selectedCandidates.map((candidate) => candidate.providerAccountId)
+  );
+
+  if (additionalProfiles > 0) {
+    await assertWithinWorkspacePlanLimit({
+      workspaceId: access.workspace_id,
+      metric: "profiles",
+      amount: additionalProfiles
+    });
   }
 
   const accessToken = decrypt(session.access_token);

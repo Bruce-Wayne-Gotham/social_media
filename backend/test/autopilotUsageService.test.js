@@ -6,8 +6,8 @@ const { createAutopilotUsageService } = require("../src/services/autopilotUsageS
 test("assertWithinRateLimit allows usage under the caps", async () => {
   const service = createAutopilotUsageService({
     config: {
-      maxRequestsPerWindow: 3,
-      maxDraftsPerWindow: 10,
+      rateLimitMaxRequests: 3,
+      rateLimitMaxDrafts: 10,
       rateLimitWindowMs: 60000
     },
     queryFn: async () => ({
@@ -24,8 +24,8 @@ test("assertWithinRateLimit allows usage under the caps", async () => {
 test("assertWithinRateLimit blocks when request cap is exceeded", async () => {
   const service = createAutopilotUsageService({
     config: {
-      maxRequestsPerWindow: 2,
-      maxDraftsPerWindow: 10,
+      rateLimitMaxRequests: 2,
+      rateLimitMaxDrafts: 10,
       rateLimitWindowMs: 60000
     },
     queryFn: async () => ({
@@ -45,8 +45,8 @@ test("assertWithinRateLimit blocks when request cap is exceeded", async () => {
 test("assertWithinRateLimit blocks when draft cap is exceeded", async () => {
   const service = createAutopilotUsageService({
     config: {
-      maxRequestsPerWindow: 5,
-      maxDraftsPerWindow: 5,
+      rateLimitMaxRequests: 5,
+      rateLimitMaxDrafts: 5,
       rateLimitWindowMs: 60000
     },
     queryFn: async () => ({
@@ -67,8 +67,8 @@ test("recordUsage inserts a workspace usage row", async () => {
   let captured;
   const service = createAutopilotUsageService({
     config: {
-      maxRequestsPerWindow: 5,
-      maxDraftsPerWindow: 5,
+      rateLimitMaxRequests: 5,
+      rateLimitMaxDrafts: 5,
       rateLimitWindowMs: 60000
     },
     queryFn: async (_sql, params) => {
@@ -85,6 +85,7 @@ test("recordUsage inserts a workspace usage row", async () => {
     userId: "user-1",
     provider: "openai",
     model: "gpt-4.1",
+    platforms: ["linkedin", "instagram"],
     status: "succeeded",
     requestedDraftCount: 2,
     generatedDraftCount: 2,
@@ -96,5 +97,6 @@ test("recordUsage inserts a workspace usage row", async () => {
 
   assert.equal(captured[0], "workspace-1");
   assert.equal(captured[5], "succeeded");
+  assert.deepEqual(captured[8], ["linkedin", "instagram"]);
   assert.equal(result.id, "usage-1");
 });

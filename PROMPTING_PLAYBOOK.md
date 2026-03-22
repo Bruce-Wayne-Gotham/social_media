@@ -252,8 +252,8 @@ Implement the approvals experience end-to-end:
 Acceptance criteria:
 - A post cannot be scheduled/published unless approved.
 - Every approve/reject is recorded with timestamp + user id + optional comment.
-```
 
+```
 ---
 
 ## Stage 7 - Media Uploads (Cheap Storage) + Asset Library

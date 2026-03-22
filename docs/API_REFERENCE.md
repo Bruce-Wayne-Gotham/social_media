@@ -32,6 +32,19 @@ Workspaces:
 - `POST /workspaces/:workspaceId/clients`
   - body: `{ "name": "Client Name" }`
   - returns: `{ "client": { ... } }`
+  - errors: `403` when the workspace plan client limit is reached
+
+Billing:
+- `GET /billing/workspaces/:workspaceId`
+  - returns: `{ "billing": { "workspaceId", "provider", "plan": { "code", "name", "limits": { "seats", "clients", "profiles", "postsPerMonth", "aiCredits" } }, "subscription": { "status", "currentPeriodStart", "currentPeriodEnd", "cancelAtPeriodEnd" }, "usage": { "seats", "clients", "profiles", "postsPerMonth", "aiCredits" }, "upgradeAvailable" } }`
+- `POST /billing/workspaces/:workspaceId/checkout`
+  - body: `{}`
+  - returns: `{ "checkoutUrl": "https://checkout.stripe.com/...", "sessionId": "cs_..." }`
+  - errors: `403` when the caller is not an owner/admin, `503` when Stripe is not configured
+- `POST /billing/webhooks/stripe`
+  - body: raw Stripe webhook payload
+  - headers: `stripe-signature`
+  - returns: `{ "received": true }`
 
 Clients:
 - `GET /clients/:clientId`
@@ -44,7 +57,7 @@ Clients:
 - `POST /clients/:clientId/generate-drafts`
   - body: `{ "count": 3, "platforms": ["linkedin", "instagram", "youtube"] }`
   - returns: `{ "posts": [{ ... }] }`
-  - errors: `429` when the workspace request or draft limit is exceeded, `503` when Autopilot is disabled globally or for the workspace, `502` when the provider fails
+  - errors: `403` when the workspace AI credit plan limit is reached, `429` when the workspace rate limit or draft quota is exceeded, `503` when Autopilot is disabled globally or for the workspace, `502` when the provider fails
 - `GET /clients/:clientId/media-assets`
   - returns: `{ "assets": [{ "id", "client_id", "original_filename", "content_type", "file_size_bytes", "public_url", "status" }] }`
 - `POST /clients/:clientId/media-assets/upload-url`
@@ -80,6 +93,7 @@ Social Profiles:
   - returns: `{ "platform": "linkedin|instagram|youtube", "authUrl": "https://..." }`
 - `DELETE /social-profiles/:socialProfileId`
   - returns: `{ "ok": true }`
+  - note: profile-count plan limits are enforced when the OAuth connect session is consumed
 
 OAuth Connect Sessions:
 - `GET /oauth-connect-sessions/:sessionId`
@@ -87,6 +101,7 @@ OAuth Connect Sessions:
 - `POST /oauth-connect-sessions/:sessionId/consume`
   - body: `{ "clientId": "<uuid>", "providerAccountIds": ["..."] }`
   - returns: `{ "connected": [{ ... }] }`
+  - errors: `403` when the workspace plan social-profile limit is reached
 
 Posts (Client-scoped):
 - `GET /clients/:clientId/posts`
@@ -94,6 +109,7 @@ Posts (Client-scoped):
 - `POST /clients/:clientId/posts`
   - body: `{ "content": "...", "mediaAssetId": "<uuid>|null", "mediaUrl": "", "hashtags": [], "scheduledTime": null, "platforms": ["linkedin"] }`
   - returns: `{ "post": { ... } }`
+  - errors: `403` when the workspace monthly post limit is reached
 
 Posts (Legacy + shared):
 - `GET /posts` (defaults to `users.default_client_id`)

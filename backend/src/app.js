@@ -14,7 +14,9 @@ const postRoutes = require("./routes/postRoutes");
 const approvalMagicLinkRoutes = require("./routes/approvalMagicLinkRoutes");
 const mediaAssetRoutes = require("./routes/mediaAssetRoutes");
 const trackedLinkRoutes = require("./routes/trackedLinkRoutes");
+const billingRoutes = require("./routes/billingRoutes");
 const trackedLinkController = require("./controllers/trackedLinkController");
+const billingController = require("./controllers/billingController");
 const { UPLOAD_ROOT } = require("./config/media");
 
 const app = express();
@@ -45,6 +47,7 @@ app.use(
 );
 app.options("*", cors());
 app.use(morgan("dev"));
+app.post("/api/billing/webhooks/stripe", express.raw({ type: "application/json" }), billingController.handleStripeWebhook);
 app.use(express.json({ limit: "1mb" }));
 app.use("/media", express.static(path.resolve(UPLOAD_ROOT)));
 
@@ -63,6 +66,7 @@ app.use("/api/posts", postRoutes);
 app.use("/api/approval-links", approvalMagicLinkRoutes);
 app.use("/api/media-assets", mediaAssetRoutes);
 app.use("/api/tracked-links", trackedLinkRoutes);
+app.use("/api/billing", billingRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

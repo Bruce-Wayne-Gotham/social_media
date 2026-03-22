@@ -5,6 +5,7 @@ const { httpError } = require("../utils/httpError");
 const { assertClientAccess } = require("./accessService");
 const { generateDrafts: generateAutopilotDrafts } = require("./autopilotService");
 const { resolveMediaForPost } = require("./mediaAssetService");
+const { assertWithinWorkspacePlanLimit } = require("./billingService");
 
 function normalizeTextList(values) {
   return (values || []).map((value) => `${value}`.trim()).filter(Boolean);
@@ -310,8 +311,16 @@ async function getPostsByUser(userId) {
   return getPostsByClient(userId, clientId);
 }
 
-async function createPostForClient(userId, clientId, payload) {
-  await assertClientAccess(userId, clientId);
+async function createPostForClient(userId, clientId, payload, options = {}) {
+  const access = await assertClientAccess(userId, clientId);
+  if (!options.skipPlanLimitCheck) {
+    await assertWithinWorkspacePlanLimit({
+      workspaceId: access.workspace_id,
+      metric: "postsPerMonth",
+      amount: 1
+    });
+  }
+
   const strategy = await getClientStrategy(clientId);
   const client = await pool.connect();
 
@@ -391,6 +400,12 @@ async function generateDraftsForClient(userId, clientId, payload) {
   const access = await assertClientAccess(userId, clientId);
   const strategy = await getClientStrategy(clientId);
 
+  await assertWithinWorkspacePlanLimit({
+    workspaceId: access.workspace_id,
+    metric: "postsPerMonth",
+    amount: payload.count
+  });
+
   const generation = await generateAutopilotDrafts({
     workspaceId: access.workspace_id,
     clientId,
@@ -413,7 +428,7 @@ async function generateDraftsForClient(userId, clientId, payload) {
       approvalStatus: "needs_approval",
       status: "draft",
       generationSource: "autopilot_ai"
-    });
+    }, { skipPlanLimitCheck: true });
 
     posts.push(post);
   }

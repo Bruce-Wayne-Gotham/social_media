@@ -38,7 +38,10 @@ test("parses provider JSON output into normalized drafts", () => {
     2
   );
 
-  assert.deepEqual(drafts, [{ content: "First draft" }, { content: "Second draft" }]);
+  assert.deepEqual(drafts, [
+    { content: "First draft", hashtags: [] },
+    { content: "Second draft", hashtags: [] }
+  ]);
 });
 
 test("rejects unexpected draft counts", () => {
