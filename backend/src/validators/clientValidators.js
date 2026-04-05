@@ -40,9 +40,9 @@ const updateClientSchema = clientStrategySchema.extend({
 
 const generateDraftsSchema = z.object({
   count: z.number().int().min(1).max(12).default(3),
-  platforms: z.array(z.enum(["linkedin", "instagram", "youtube"]))
+  platforms: z.array(z.enum(["telegram", "reddit", "youtube", "pinterest"]))
     .min(1)
-    .max(3)
+    .max(4)
 });
 
 module.exports = {

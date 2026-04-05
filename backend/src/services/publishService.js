@@ -1,9 +1,9 @@
 const { query } = require("../config/db");
 const { decrypt } = require("../utils/crypto");
 const { adaptPost } = require("./platformAdapters");
-const { publishTwitterPost } = require("./twitterPublisher");
-const { publishLinkedInPost } = require("./linkedinPublisher");
-const { publishInstagramPost } = require("./instagramPublisher");
+const { publishTelegramPost } = require("./linkedinPublisher");
+const { publishRedditPost } = require("./instagramPublisher");
+const { publishPinterestPost } = require("./pinterestPublisher");
 const { publishYoutubeMetadata } = require("./youtubePublisher");
 
 async function publishPost(postId) {
@@ -24,7 +24,7 @@ async function publishPost(postId) {
   const targetsResult = await query(
     `SELECT pt.id, pt.platform, sa.access_token
      FROM post_targets pt
-     LEFT JOIN social_accounts sa
+     LEFT JOIN social_profiles sa
        ON sa.user_id = $1 AND sa.platform = pt.platform
      WHERE pt.post_id = $2`,
     [post.user_id, postId]
@@ -63,17 +63,17 @@ async function publishPost(postId) {
 }
 
 async function dispatchPublisher(platform, context) {
-  if (platform === "twitter") {
-    return publishTwitterPost(context);
+  if (platform === "telegram") {
+    return publishTelegramPost(context);
   }
-  if (platform === "linkedin") {
-    return publishLinkedInPost(context);
-  }
-  if (platform === "instagram") {
-    return publishInstagramPost(context);
+  if (platform === "reddit") {
+    return publishRedditPost(context);
   }
   if (platform === "youtube") {
     return publishYoutubeMetadata(context);
+  }
+  if (platform === "pinterest") {
+    return publishPinterestPost(context);
   }
   throw new Error(`Unsupported platform: ${platform}`);
 }

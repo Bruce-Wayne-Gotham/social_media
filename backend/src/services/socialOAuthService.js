@@ -5,28 +5,22 @@ const {
   verifyOAuthState
 } = require("../utils/oauthState");
 
-const META_API_VERSION = process.env.META_API_VERSION || "v23.0";
-const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202502";
-
 const PROVIDERS = {
-  linkedin: {
-    clientId: process.env.LINKEDIN_CLIENT_ID,
-    clientSecret: process.env.LINKEDIN_CLIENT_SECRET,
-    authorizationUrl: "https://www.linkedin.com/oauth/v2/authorization",
-    tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
-    scopes: ["openid", "profile", "email", "w_member_social"]
+  // TODO: Telegram uses Bot API tokens, not standard OAuth. Implement bot token setup separately.
+  telegram: {
+    clientId: process.env.TELEGRAM_BOT_TOKEN,
+    clientSecret: process.env.TELEGRAM_BOT_TOKEN,
+    authorizationUrl: "https://oauth.telegram.org/auth",
+    tokenUrl: "https://oauth.telegram.org/auth/request",
+    scopes: []
   },
-  instagram: {
-    clientId: process.env.INSTAGRAM_CLIENT_ID,
-    clientSecret: process.env.INSTAGRAM_CLIENT_SECRET,
-    authorizationUrl: `https://www.facebook.com/${META_API_VERSION}/dialog/oauth`,
-    tokenUrl: `https://graph.facebook.com/${META_API_VERSION}/oauth/access_token`,
-    scopes: [
-      "instagram_business_basic",
-      "instagram_business_content_publish",
-      "pages_show_list",
-      "business_management"
-    ]
+  // TODO: Implement Reddit OAuth 2.0 flow
+  reddit: {
+    clientId: process.env.REDDIT_CLIENT_ID,
+    clientSecret: process.env.REDDIT_CLIENT_SECRET,
+    authorizationUrl: "https://www.reddit.com/api/v1/authorize",
+    tokenUrl: "https://www.reddit.com/api/v1/access_token",
+    scopes: ["identity", "submit"]
   },
   youtube: {
     clientId: process.env.YOUTUBE_CLIENT_ID,
@@ -38,6 +32,14 @@ const PROVIDERS = {
       "https://www.googleapis.com/auth/youtube.upload",
       "https://www.googleapis.com/auth/userinfo.profile"
     ]
+  },
+  // TODO: Implement Pinterest OAuth 2.0 flow
+  pinterest: {
+    clientId: process.env.PINTEREST_CLIENT_ID,
+    clientSecret: process.env.PINTEREST_CLIENT_SECRET,
+    authorizationUrl: "https://www.pinterest.com/oauth/",
+    tokenUrl: "https://api.pinterest.com/v5/oauth/token",
+    scopes: ["boards:read", "pins:read", "pins:write"]
   }
 };
 
@@ -121,6 +123,10 @@ async function startAuthorization({ platform, userId, clientId }) {
     params.set("prompt", "consent");
   }
 
+  if (provider.platform === "reddit") {
+    params.set("duration", "permanent");
+  }
+
   params.set("state", createOAuthState(statePayload));
 
   const authUrl = new URL(provider.authorizationUrl);
@@ -133,34 +139,6 @@ async function startAuthorization({ platform, userId, clientId }) {
 }
 
 async function exchangeCodeForToken(provider, code, redirectUri, statePayload) {
-  if (provider.platform === "linkedin") {
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      code,
-      client_id: provider.clientId,
-      client_secret: provider.clientSecret,
-      redirect_uri: redirectUri
-    });
-
-    return fetchJson(provider.tokenUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: body.toString()
-    });
-  }
-
-  if (provider.platform === "instagram") {
-    const url = new URL(provider.tokenUrl);
-    url.searchParams.set("client_id", provider.clientId);
-    url.searchParams.set("client_secret", provider.clientSecret);
-    url.searchParams.set("redirect_uri", redirectUri);
-    url.searchParams.set("code", code);
-
-    return fetchJson(url.toString());
-  }
-
   if (provider.platform === "youtube") {
     const body = new URLSearchParams({
       code,
@@ -179,39 +157,53 @@ async function exchangeCodeForToken(provider, code, redirectUri, statePayload) {
     });
   }
 
+  if (provider.platform === "reddit") {
+    // TODO: Reddit uses HTTP Basic Auth with base64(clientId:clientSecret)
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri
+    });
+    const credentials = Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString("base64");
+
+    return fetchJson(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${credentials}`
+      },
+      body: body.toString()
+    });
+  }
+
+  if (provider.platform === "pinterest") {
+    // TODO: Pinterest token exchange
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri
+    });
+    const credentials = Buffer.from(`${provider.clientId}:${provider.clientSecret}`).toString("base64");
+
+    return fetchJson(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: `Basic ${credentials}`
+      },
+      body: body.toString()
+    });
+  }
+
+  // TODO: Telegram OAuth stub
+  if (provider.platform === "telegram") {
+    throw new Error("Telegram OAuth not yet implemented — use Bot Token setup instead");
+  }
+
   throw new Error(`Unsupported platform: ${provider.platform}`);
 }
 
 async function resolveAccountProfile(provider, accessToken) {
-  if (provider.platform === "linkedin") {
-    const profile = await fetchJson("https://api.linkedin.com/v2/userinfo", {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
-    });
-
-    return {
-      accountName: profile.name || profile.localizedFirstName || profile.email || "linkedin-account",
-      providerAccountId: profile.sub || profile.email || "linkedin"
-    };
-  }
-
-  if (provider.platform === "instagram") {
-    const profile = await fetchJson(
-      `https://graph.facebook.com/${META_API_VERSION}/me/accounts?fields=instagram_business_account{id,username},name&access_token=${encodeURIComponent(accessToken)}`
-    );
-
-    const page = (profile.data || []).find((item) => item.instagram_business_account?.id);
-    if (!page) {
-      throw new Error("No Instagram business account is linked to this Facebook account");
-    }
-
-    return {
-      accountName: page.instagram_business_account.username || page.name || "instagram-account",
-      providerAccountId: page.instagram_business_account.id
-    };
-  }
-
   if (provider.platform === "youtube") {
     const profile = await fetchJson("https://www.googleapis.com/oauth2/v3/userinfo", {
       headers: {
@@ -225,31 +217,70 @@ async function resolveAccountProfile(provider, accessToken) {
     };
   }
 
+  if (provider.platform === "reddit") {
+    // TODO: GET https://oauth.reddit.com/api/v1/me
+    const profile = await fetchJson("https://oauth.reddit.com/api/v1/me", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "User-Agent": "SocialHub/1.0"
+      }
+    });
+
+    return {
+      accountName: profile.name || "reddit-account",
+      providerAccountId: profile.id || profile.name || "reddit"
+    };
+  }
+
+  if (provider.platform === "pinterest") {
+    // TODO: GET https://api.pinterest.com/v5/user_account
+    const profile = await fetchJson("https://api.pinterest.com/v5/user_account", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    });
+
+    return {
+      accountName: profile.username || profile.business_name || "pinterest-account",
+      providerAccountId: profile.username || "pinterest"
+    };
+  }
+
+  // TODO: Telegram profile resolution via getMe
+  if (provider.platform === "telegram") {
+    throw new Error("Telegram profile resolution not yet implemented");
+  }
+
   throw new Error(`Unsupported platform: ${provider.platform}`);
 }
 
 async function listConnectableProfiles(provider, accessToken) {
   // Keep this minimal and reliable. We return an array even if we can only detect one profile.
-  if (provider.platform === "linkedin") {
+  if (provider.platform === "reddit") {
     const profile = await resolveAccountProfile(provider, accessToken);
     return [
       {
         providerAccountId: profile.providerAccountId,
         accountName: profile.accountName,
-        kind: "member"
+        kind: "user"
       }
     ];
   }
 
-  if (provider.platform === "instagram") {
+  if (provider.platform === "pinterest") {
     const profile = await resolveAccountProfile(provider, accessToken);
     return [
       {
         providerAccountId: profile.providerAccountId,
         accountName: profile.accountName,
-        kind: "business_account"
+        kind: "account"
       }
     ];
+  }
+
+  if (provider.platform === "telegram") {
+    // TODO: Telegram uses bot tokens — return the bot identity
+    throw new Error("Telegram profile listing not yet implemented");
   }
 
   if (provider.platform === "youtube") {
@@ -320,7 +351,5 @@ module.exports = {
   getProvider,
   listConnectableProfiles,
   startAuthorization,
-  getRedirectUri,
-  LINKEDIN_VERSION,
-  META_API_VERSION
+  getRedirectUri
 };

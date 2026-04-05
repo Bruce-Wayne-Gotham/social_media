@@ -1,15 +1,4 @@
-const { fetchJson, readResponseBody } = require("./http");
-
-const META_API_VERSION = process.env.META_API_VERSION || "v23.0";
-const LINKEDIN_VERSION = process.env.LINKEDIN_API_VERSION || "202502";
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isVideoUrl(url) {
-  return /\.(mp4|mov|avi|webm|m4v)(\?.*)?$/i.test(url);
-}
+const { fetchJson } = require("./http");
 
 function guessContentType(url) {
   if (/\.(mp4|m4v)(\?.*)?$/i.test(url)) {
@@ -24,133 +13,35 @@ function guessContentType(url) {
   return "application/octet-stream";
 }
 
-async function publishLinkedInPost({ accessToken, payload }) {
-  const profile = await fetchJson("https://api.linkedin.com/v2/userinfo", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-
-  if (!profile.sub) {
-    throw new Error("LinkedIn profile did not return a member identifier");
-  }
-
-  const response = await fetch("https://api.linkedin.com/rest/posts", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      "LinkedIn-Version": LINKEDIN_VERSION,
-      "X-Restli-Protocol-Version": "2.0.0"
-    },
-    body: JSON.stringify({
-      author: `urn:li:person:${profile.sub}`,
-      commentary: payload.text,
-      visibility: "PUBLIC",
-      distribution: {
-        feedDistribution: "MAIN_FEED",
-        targetEntities: [],
-        thirdPartyDistributionChannels: []
-      },
-      lifecycleState: "PUBLISHED",
-      isReshareDisabledByAuthor: false
-    })
-  });
-
-  const body = await readResponseBody(response);
-  if (!response.ok) {
-    const message = typeof body === "string"
-      ? body
-      : body.message || body.error_description || "LinkedIn publish failed";
-    throw new Error(message);
-  }
-
-  return {
-    externalPostId: response.headers.get("x-restli-id") || body.id || `linkedin_${Date.now()}`
-  };
+// TODO: Implement Telegram publishing via Telegram Bot API
+// Relevant API calls:
+//   POST https://api.telegram.org/bot<token>/sendMessage  (text posts)
+//   POST https://api.telegram.org/bot<token>/sendPhoto    (image posts)
+//   POST https://api.telegram.org/bot<token>/sendVideo    (video posts)
+// payload fields: text, mediaUrl
+async function publishTelegramPost({ accessToken, payload }) {
+  // TODO: POST to Telegram Bot API with chat_id (from account) and text
+  return { externalPostId: `stub_telegram_${Date.now()}` };
 }
 
-async function resolveInstagramBusinessAccount(accessToken) {
-  const result = await fetchJson(
-    `https://graph.facebook.com/${META_API_VERSION}/me/accounts?fields=instagram_business_account{id,username},name&access_token=${encodeURIComponent(accessToken)}`
-  );
-
-  const page = (result.data || []).find((item) => item.instagram_business_account?.id);
-  if (!page) {
-    throw new Error("No Instagram business account is linked to this Facebook account");
-  }
-
-  return page.instagram_business_account;
+// TODO: Implement Reddit publishing via Reddit OAuth REST API
+// Relevant API calls:
+//   POST https://oauth.reddit.com/api/submit
+//   Fields: sr (subreddit), kind ('self' or 'link'), title, text/url
+// payload fields: title, text, subreddit, mediaUrl
+async function publishRedditPost({ accessToken, payload }) {
+  // TODO: POST to https://oauth.reddit.com/api/submit with sr=payload.subreddit
+  return { externalPostId: `stub_reddit_${Date.now()}` };
 }
 
-async function waitForInstagramContainer(creationId, accessToken) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const result = await fetchJson(
-      `https://graph.facebook.com/${META_API_VERSION}/${creationId}?fields=status_code,status&access_token=${encodeURIComponent(accessToken)}`
-    );
-
-    const status = result.status_code || result.status;
-    if (status === "FINISHED" || status === "PUBLISHED") {
-      return;
-    }
-
-    if (status === "ERROR" || status === "EXPIRED") {
-      throw new Error(`Instagram media processing failed with status ${status}`);
-    }
-
-    await sleep(3000);
-  }
-
-  throw new Error("Instagram media processing timed out");
-}
-
-async function publishInstagramPost({ accessToken, payload }) {
-  if (!payload.mediaUrl) {
-    throw new Error("Instagram publishing requires a public media URL");
-  }
-
-  const account = await resolveInstagramBusinessAccount(accessToken);
-  const mediaParams = new URLSearchParams({
-    access_token: accessToken,
-    caption: payload.caption || ""
-  });
-
-  if (isVideoUrl(payload.mediaUrl)) {
-    mediaParams.set("media_type", "REELS");
-    mediaParams.set("video_url", payload.mediaUrl);
-  } else {
-    mediaParams.set("image_url", payload.mediaUrl);
-  }
-
-  const container = await fetchJson(`https://graph.facebook.com/${META_API_VERSION}/${account.id}/media`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: mediaParams.toString()
-  });
-
-  if (isVideoUrl(payload.mediaUrl)) {
-    await waitForInstagramContainer(container.id, accessToken);
-  }
-
-  const publishResult = await fetchJson(
-    `https://graph.facebook.com/${META_API_VERSION}/${account.id}/media_publish`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: new URLSearchParams({
-        access_token: accessToken,
-        creation_id: container.id
-      }).toString()
-    }
-  );
-
-  return {
-    externalPostId: publishResult.id || container.id
-  };
+// TODO: Implement Pinterest publishing via Pinterest API v5
+// Relevant API calls:
+//   POST https://api.pinterest.com/v5/pins
+//   Fields: board_id, title, description, media_source (image_url / video_id)
+// payload fields: title, description, boardId, mediaUrl
+async function publishPinterestPost({ accessToken, payload }) {
+  // TODO: POST to https://api.pinterest.com/v5/pins with board_id=payload.boardId
+  return { externalPostId: `stub_pinterest_${Date.now()}` };
 }
 
 async function publishYoutubeMetadata({ accessToken, payload }) {
@@ -202,7 +93,8 @@ async function publishYoutubeMetadata({ accessToken, payload }) {
 }
 
 module.exports = {
-  publishLinkedInPost,
-  publishInstagramPost,
+  publishTelegramPost,
+  publishRedditPost,
+  publishPinterestPost,
   publishYoutubeMetadata
 };

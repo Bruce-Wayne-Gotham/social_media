@@ -81,18 +81,18 @@ async function consumeSession(userId, sessionId, { clientId, providerAccountIds 
   const created = [];
   for (const candidate of selectedCandidates) {
     const result = await query(
-      `INSERT INTO social_accounts
-         (user_id, client_id, platform, provider_account_id, account_name, access_token, refresh_token, expiry, updated_at)
+      `INSERT INTO social_profiles
+         (user_id, client_id, platform, provider_account_id, display_name, access_token, refresh_token, expiry, updated_at)
        VALUES
          ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        ON CONFLICT (client_id, platform, provider_account_id)
        DO UPDATE SET
-         account_name = EXCLUDED.account_name,
+         display_name = EXCLUDED.display_name,
          access_token = EXCLUDED.access_token,
          refresh_token = EXCLUDED.refresh_token,
          expiry = EXCLUDED.expiry,
          updated_at = NOW()
-       RETURNING id, client_id, platform, provider_account_id, account_name, expiry, created_at, updated_at`,
+       RETURNING id, client_id, platform, provider_account_id, display_name, expiry, created_at, updated_at`,
       [
         userId,
         resolvedClientId,

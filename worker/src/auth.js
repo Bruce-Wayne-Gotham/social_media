@@ -19,14 +19,14 @@ function getExpiry(expiresIn, fallbackExpiry) {
 
 async function updateAccountTokens(client, target, tokens) {
   await client.query(
-    `UPDATE social_accounts
+    `UPDATE social_profiles
      SET access_token = $2,
          refresh_token = $3,
          expiry = $4,
          updated_at = NOW()
      WHERE id = $1`,
     [
-      target.social_account_id,
+      target.social_profile_id,
       encrypt(tokens.accessToken),
       tokens.refreshToken ? encrypt(tokens.refreshToken) : null,
       tokens.expiry
@@ -34,27 +34,18 @@ async function updateAccountTokens(client, target, tokens) {
   );
 }
 
-async function refreshLinkedInToken(target, refreshToken) {
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: refreshToken,
-    client_id: process.env.LINKEDIN_CLIENT_ID,
-    client_secret: process.env.LINKEDIN_CLIENT_SECRET
-  });
+// TODO: Implement Reddit token refresh via https://www.reddit.com/api/v1/access_token
+async function refreshRedditToken(target, refreshToken) {
+  // TODO: POST https://www.reddit.com/api/v1/access_token
+  //   grant_type=refresh_token, Authorization: Basic base64(clientId:clientSecret)
+  throw new Error("Reddit token refresh not yet implemented");
+}
 
-  const payload = await fetchJson("https://www.linkedin.com/oauth/v2/accessToken", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: body.toString()
-  });
-
-  return {
-    accessToken: payload.access_token,
-    refreshToken: payload.refresh_token || refreshToken,
-    expiry: getExpiry(payload.expires_in, target.expiry)
-  };
+// TODO: Implement Pinterest token refresh via https://api.pinterest.com/v5/oauth/token
+async function refreshPinterestToken(target, refreshToken) {
+  // TODO: POST https://api.pinterest.com/v5/oauth/token
+  //   grant_type=refresh_token, Authorization: Basic base64(clientId:clientSecret)
+  throw new Error("Pinterest token refresh not yet implemented");
 }
 
 async function refreshYoutubeToken(target, refreshToken) {
@@ -81,7 +72,8 @@ async function refreshYoutubeToken(target, refreshToken) {
 }
 
 async function refreshAccessToken(client, target, accessToken) {
-  if (target.platform === "instagram") {
+  // Telegram uses bot tokens — they do not expire and cannot be refreshed
+  if (target.platform === "telegram") {
     return accessToken;
   }
 
@@ -92,10 +84,12 @@ async function refreshAccessToken(client, target, accessToken) {
   const refreshToken = decrypt(target.refresh_token);
   let nextTokens;
 
-  if (target.platform === "linkedin") {
-    nextTokens = await refreshLinkedInToken(target, refreshToken);
-  } else if (target.platform === "youtube") {
+  if (target.platform === "youtube") {
     nextTokens = await refreshYoutubeToken(target, refreshToken);
+  } else if (target.platform === "reddit") {
+    nextTokens = await refreshRedditToken(target, refreshToken);
+  } else if (target.platform === "pinterest") {
+    nextTokens = await refreshPinterestToken(target, refreshToken);
   } else {
     throw new Error(`Unsupported platform: ${target.platform}`);
   }
@@ -105,7 +99,7 @@ async function refreshAccessToken(client, target, accessToken) {
 }
 
 async function resolveAccessToken(client, target) {
-  if (!target.social_account_id || !target.access_token) {
+  if (!target.social_profile_id || !target.access_token) {
     throw new Error(`No connected account for ${target.platform}`);
   }
 

@@ -1,15 +1,12 @@
-async function publishInstagramPost({ accessToken, payload }) {
+// TODO: Implement Reddit publishing via Reddit OAuth REST API
+// POST https://oauth.reddit.com/api/submit
+// Fields: sr (subreddit), kind ('self' or 'link'), title, text/url
+async function publishRedditPost({ accessToken, payload }) {
   return {
-    platform: "instagram",
-    success: true,
-    externalPostId: `ig_${Date.now()}`,
-    requestPreview: {
-      bearerTokenPresent: Boolean(accessToken),
-      payload
-    }
+    externalPostId: `stub_reddit_${Date.now()}`
   };
 }
 
 module.exports = {
-  publishInstagramPost
+  publishRedditPost
 };

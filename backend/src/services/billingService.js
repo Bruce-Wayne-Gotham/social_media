@@ -204,7 +204,7 @@ async function getWorkspaceUsage(workspaceId, queryFn = query) {
        (SELECT COUNT(*)::int FROM clients WHERE workspace_id = $1) AS clients,
        (
          SELECT COUNT(*)::int
-         FROM social_accounts sa
+         FROM social_profiles sa
          JOIN clients c ON c.id = sa.client_id
          WHERE c.workspace_id = $1
        ) AS profiles,
@@ -526,7 +526,7 @@ async function countAdditionalProfilesForClient(clientId, platform, providerAcco
 
   const result = await queryFn(
     `SELECT COUNT(*)::int AS existing_count
-     FROM social_accounts
+     FROM social_profiles
      WHERE client_id = $1
        AND platform = $2
        AND provider_account_id = ANY($3::text[])`,

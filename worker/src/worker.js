@@ -6,8 +6,9 @@ const { Pool } = require("pg");
 const { adaptPost } = require("./platformAdapters");
 const { resolveAccessToken } = require("./auth");
 const {
-  publishLinkedInPost,
-  publishInstagramPost,
+  publishTelegramPost,
+  publishRedditPost,
+  publishPinterestPost,
   publishYoutubeMetadata
 } = require("./publishers");
 
@@ -55,7 +56,7 @@ async function publishPost(postId) {
 
   try {
     const postResult = await client.query(
-      `SELECT id, user_id, client_id, content, media_url, hashtags, approval_status, status
+      `SELECT id, user_id, client_id, content, media_url, hashtags, status
        FROM posts
        WHERE id = $1`,
       [postId]
@@ -67,7 +68,7 @@ async function publishPost(postId) {
 
     const post = postResult.rows[0];
 
-    if (post.approval_status !== "approved") {
+    if (post.status !== "approved" && post.status !== "scheduled") {
       throw new Error("Post is not approved for publishing");
     }
 
@@ -81,7 +82,7 @@ async function publishPost(postId) {
     const targetsResult = await client.query(
       `SELECT pt.id,
               pt.platform,
-              sa.id AS social_account_id,
+              sa.id AS social_profile_id,
               sa.access_token,
               sa.refresh_token,
               sa.expiry,
@@ -90,11 +91,11 @@ async function publishPost(postId) {
        FROM post_targets pt
        LEFT JOIN LATERAL (
          SELECT id, access_token, refresh_token, expiry
-         FROM social_accounts
+         FROM social_profiles
          WHERE client_id = $1
            AND (
-             (pt.social_account_id IS NOT NULL AND id = pt.social_account_id)
-             OR (pt.social_account_id IS NULL AND platform = pt.platform)
+             (pt.social_profile_id IS NOT NULL AND id = pt.social_profile_id)
+             OR (pt.social_profile_id IS NULL AND platform = pt.platform)
            )
          ORDER BY updated_at DESC
          LIMIT 1
@@ -146,14 +147,17 @@ async function publishPost(postId) {
 }
 
 async function dispatchPublisher(platform, context) {
-  if (platform === "linkedin") {
-    return publishLinkedInPost(context);
+  if (platform === "telegram") {
+    return publishTelegramPost(context);
   }
-  if (platform === "instagram") {
-    return publishInstagramPost(context);
+  if (platform === "reddit") {
+    return publishRedditPost(context);
   }
   if (platform === "youtube") {
     return publishYoutubeMetadata(context);
+  }
+  if (platform === "pinterest") {
+    return publishPinterestPost(context);
   }
   throw new Error(`Unsupported platform: ${platform}`);
 }

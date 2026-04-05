@@ -43,7 +43,7 @@ async function getDefaultClientIdForUser(userId) {
 async function resolveDefaultSocialAccountId(client, clientId, platform) {
   const result = await client.query(
     `SELECT id
-     FROM social_accounts
+     FROM social_profiles
      WHERE client_id = $1 AND platform = $2
      ORDER BY updated_at DESC
      LIMIT 1`,
@@ -53,12 +53,29 @@ async function resolveDefaultSocialAccountId(client, clientId, platform) {
   return result.rows[0]?.id || null;
 }
 
+// Map legacy post_approval_events actions to approval_logs actions
+const APPROVAL_LOG_ACTIONS = {
+  requested: "submitted",
+  approved: "approved",
+  rejected: "rejected",
+  unapproved: "recalled"
+};
+
 async function insertApprovalEvent(client, { postId, actorUserId, actorLabel, action, fromStatus, toStatus, note }) {
   await client.query(
     `INSERT INTO post_approval_events (post_id, actor_user_id, actor_label, action, from_status, to_status, note)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [postId, actorUserId || null, actorLabel || null, action, fromStatus || null, toStatus || null, note || null]
   );
+
+  const logAction = APPROVAL_LOG_ACTIONS[action];
+  if (logAction) {
+    await client.query(
+      `INSERT INTO approval_logs (post_id, action, actor_id, actor_name, comment)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [postId, logAction, actorUserId || null, actorLabel || null, note || null]
+    );
+  }
 }
 
 async function getApprovalEvents(postId) {
@@ -152,11 +169,10 @@ async function getPostSummaryById(postId) {
        p.risk_flags,
        p.generation_source,
        p.scheduled_time,
-       p.approval_status,
+       p.status,
        p.approval_requested_at,
        p.approved_at,
        p.approved_by,
-       p.status,
        p.created_at,
        p.updated_at,
        c.name AS client_name,
@@ -165,7 +181,7 @@ async function getPostSummaryById(postId) {
          JSON_AGG(
            JSON_BUILD_OBJECT(
              'platform', pt.platform,
-             'socialAccountId', pt.social_account_id,
+             'socialAccountId', pt.social_profile_id,
              'publishStatus', pt.publish_status,
              'externalPostId', pt.external_post_id,
              'errorMessage', pt.error_message
@@ -234,18 +250,17 @@ async function getPostsByClient(userId, clientId) {
        p.risk_flags,
        p.generation_source,
        p.scheduled_time,
-       p.approval_status,
+       p.status,
        p.approval_requested_at,
        p.approved_at,
        p.approved_by,
-       p.status,
        p.created_at,
        p.updated_at,
        COALESCE(
          JSON_AGG(
            JSON_BUILD_OBJECT(
              'platform', pt.platform,
-             'socialAccountId', pt.social_account_id,
+             'socialAccountId', pt.social_profile_id,
              'publishStatus', pt.publish_status,
              'externalPostId', pt.external_post_id,
              'errorMessage', pt.error_message
@@ -276,18 +291,17 @@ async function getPendingApprovalPostsByClient(clientId) {
        p.risk_flags,
        p.generation_source,
        p.scheduled_time,
-       p.approval_status,
+       p.status,
        p.approval_requested_at,
        p.approved_at,
        p.approved_by,
-       p.status,
        p.created_at,
        p.updated_at,
        COALESCE(
          JSON_AGG(
            JSON_BUILD_OBJECT(
              'platform', pt.platform,
-             'socialAccountId', pt.social_account_id,
+             'socialAccountId', pt.social_profile_id,
              'publishStatus', pt.publish_status,
              'externalPostId', pt.external_post_id,
              'errorMessage', pt.error_message
@@ -297,7 +311,7 @@ async function getPendingApprovalPostsByClient(clientId) {
        ) AS targets
      FROM posts p
      LEFT JOIN post_targets pt ON pt.post_id = p.id
-     WHERE p.client_id = $1 AND p.approval_status = 'needs_approval'
+     WHERE p.client_id = $1 AND p.status = 'needs_approval'
      GROUP BY p.id
      ORDER BY p.approval_requested_at DESC NULLS LAST, p.created_at DESC`,
     [clientId]
@@ -327,8 +341,7 @@ async function createPostForClient(userId, clientId, payload, options = {}) {
   try {
     await client.query("BEGIN");
     const media = await resolveMediaForPost(userId, clientId, payload.mediaAssetId || null, payload.mediaUrl || null);
-    const approvalStatus = payload.approvalStatus || "draft";
-    const publishStatus = payload.status || "draft";
+    const status = payload.approvalStatus || payload.status || "draft";
     const riskFlags = Array.isArray(payload.riskFlags)
       ? payload.riskFlags
       : evaluateRiskChecks(payload.content, strategy);
@@ -336,8 +349,8 @@ async function createPostForClient(userId, clientId, payload, options = {}) {
     const hashtags = normalizeTextList(payload.hashtags);
 
     const postResult = await client.query(
-      `INSERT INTO posts (user_id, client_id, media_asset_id, content, media_url, hashtags, risk_flags, generation_source, scheduled_time, approval_status, approval_requested_at, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $10 = 'needs_approval' THEN NOW() ELSE NULL END, $11)
+      `INSERT INTO posts (user_id, client_id, media_asset_id, content, media_url, hashtags, risk_flags, generation_source, scheduled_time, approval_requested_at, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 = 'needs_approval' THEN NOW() ELSE NULL END, $10)
        RETURNING *`,
       [
         userId,
@@ -349,8 +362,7 @@ async function createPostForClient(userId, clientId, payload, options = {}) {
         riskFlags,
         generationSource,
         payload.scheduledTime || null,
-        approvalStatus,
-        publishStatus
+        status
       ]
     );
 
@@ -360,7 +372,7 @@ async function createPostForClient(userId, clientId, payload, options = {}) {
       const platform = normalizePlatform(rawPlatform);
       const socialAccountId = await resolveDefaultSocialAccountId(client, clientId, platform);
       await client.query(
-        `INSERT INTO post_targets (post_id, platform, social_account_id, publish_status)
+        `INSERT INTO post_targets (post_id, platform, social_profile_id, publish_status)
          VALUES ($1, $2, $3, $4)`,
         [post.id, platform, socialAccountId, "pending"]
       );
@@ -371,11 +383,11 @@ async function createPostForClient(userId, clientId, payload, options = {}) {
       actorUserId: userId,
       action: "created",
       fromStatus: null,
-      toStatus: approvalStatus,
+      toStatus: status,
       note: buildGenerationAuditNote(generationSource, "created")
     });
 
-    if (approvalStatus === "needs_approval") {
+    if (status === "needs_approval") {
       await insertApprovalEvent(client, {
         postId: post.id,
         actorUserId: userId,
@@ -464,11 +476,9 @@ async function updatePost(userId, postId, patch) {
       : existing.media_url;
     const media = await resolveMediaForPost(userId, existing.client_id, nextMediaAssetId, nextRawMediaUrl);
 
-    let nextApprovalStatus = existing.approval_status;
-    let nextPublishStatus = existing.status;
-    if (existing.approval_status === "approved") {
-      nextApprovalStatus = "needs_approval";
-      nextPublishStatus = "draft";
+    let nextStatus = existing.status;
+    if (existing.status === "approved") {
+      nextStatus = "needs_approval";
     }
 
     const nextRiskFlags = evaluateRiskChecks(nextContent, strategy);
@@ -481,16 +491,15 @@ async function updatePost(userId, postId, patch) {
            hashtags = $5,
            risk_flags = $6,
            scheduled_time = $7,
-           approval_status = $8,
            approved_at = CASE WHEN $8 = 'approved' THEN approved_at ELSE NULL END,
            approved_by = CASE WHEN $8 = 'approved' THEN approved_by ELSE NULL END,
-           status = $9,
+           status = $8,
            updated_at = NOW()
        WHERE id = $1`,
-      [postId, media.mediaAssetId, nextContent, media.mediaUrl, nextHashtags, nextRiskFlags, nextScheduledTime, nextApprovalStatus, nextPublishStatus]
+      [postId, media.mediaAssetId, nextContent, media.mediaUrl, nextHashtags, nextRiskFlags, nextScheduledTime, nextStatus]
     );
 
-    if (existing.approval_status === "approved" && nextApprovalStatus !== "approved") {
+    if (existing.status === "approved" && nextStatus !== "approved") {
       await client.query(
         `UPDATE post_targets
          SET publish_status = 'pending', updated_at = NOW()
@@ -505,7 +514,7 @@ async function updatePost(userId, postId, patch) {
         const platform = normalizePlatform(rawPlatform);
         const socialAccountId = await resolveDefaultSocialAccountId(client, existing.client_id, platform);
         await client.query(
-          `INSERT INTO post_targets (post_id, platform, social_account_id, publish_status)
+          `INSERT INTO post_targets (post_id, platform, social_profile_id, publish_status)
            VALUES ($1, $2, $3, 'pending')`,
           [postId, platform, socialAccountId]
         );
@@ -516,18 +525,18 @@ async function updatePost(userId, postId, patch) {
       postId,
       actorUserId: userId,
       action: "updated",
-      fromStatus: existing.approval_status,
-      toStatus: nextApprovalStatus,
+      fromStatus: existing.status,
+      toStatus: nextStatus,
       note: nextRiskFlags.length ? `Risk checks: ${nextRiskFlags.join("; ")}` : null
     });
 
-    if (existing.approval_status === "approved" && nextApprovalStatus !== "approved") {
+    if (existing.status === "approved" && nextStatus !== "approved") {
       await insertApprovalEvent(client, {
         postId,
         actorUserId: userId,
         action: "unapproved",
         fromStatus: "approved",
-        toStatus: nextApprovalStatus,
+        toStatus: nextStatus,
         note: "Post changed after approval"
       });
     }
@@ -557,7 +566,7 @@ async function requestApproval(userId, postId, note) {
     await client.query("BEGIN");
     await client.query(
       `UPDATE posts
-       SET approval_status = 'needs_approval',
+       SET status = 'needs_approval',
            approval_requested_at = NOW(),
            updated_at = NOW()
        WHERE id = $1`,
@@ -568,7 +577,7 @@ async function requestApproval(userId, postId, note) {
       postId,
       actorUserId: userId,
       action: "requested",
-      fromStatus: existing.approval_status,
+      fromStatus: existing.status,
       toStatus: "needs_approval",
       note
     });
@@ -589,7 +598,7 @@ async function performApprove({ postId, actorUserId, actorLabel, note, resultLoa
     throw httpError("Post not found", 404);
   }
 
-  if (existing.approval_status !== "needs_approval") {
+  if (existing.status !== "needs_approval") {
     throw httpError("Post is not awaiting approval", 409);
   }
 
@@ -600,17 +609,15 @@ async function performApprove({ postId, actorUserId, actorLabel, note, resultLoa
     const delay = existing.scheduled_time
       ? Math.max(new Date(existing.scheduled_time).getTime() - Date.now(), 0)
       : 0;
-    const nextStatus = existing.scheduled_time ? "queued" : "publishing";
 
     await client.query(
       `UPDATE posts
-       SET approval_status = 'approved',
-           approved_at = NOW(),
+       SET approved_at = NOW(),
            approved_by = $2,
-           status = $3,
+           status = 'approved',
            updated_at = NOW()
        WHERE id = $1`,
-      [postId, actorUserId || null, nextStatus]
+      [postId, actorUserId || null]
     );
 
     await client.query(
@@ -625,7 +632,7 @@ async function performApprove({ postId, actorUserId, actorLabel, note, resultLoa
       actorUserId,
       actorLabel,
       action: "approved",
-      fromStatus: existing.approval_status,
+      fromStatus: existing.status,
       toStatus: "approved",
       note
     });
@@ -657,7 +664,7 @@ async function performReject({ postId, actorUserId, actorLabel, note, resultLoad
     throw httpError("Post not found", 404);
   }
 
-  if (existing.approval_status !== "needs_approval") {
+  if (existing.status !== "needs_approval") {
     throw httpError("Post is not awaiting approval", 409);
   }
 
@@ -666,8 +673,7 @@ async function performReject({ postId, actorUserId, actorLabel, note, resultLoad
     await client.query("BEGIN");
     await client.query(
       `UPDATE posts
-       SET approval_status = 'rejected',
-           status = 'draft',
+       SET status = 'draft',
            updated_at = NOW()
        WHERE id = $1`,
       [postId]
@@ -678,8 +684,8 @@ async function performReject({ postId, actorUserId, actorLabel, note, resultLoad
       actorUserId,
       actorLabel,
       action: "rejected",
-      fromStatus: existing.approval_status,
-      toStatus: "rejected",
+      fromStatus: existing.status,
+      toStatus: "draft",
       note
     });
 
@@ -707,8 +713,8 @@ async function addApprovalCommentToPost({ postId, actorUserId, actorLabel, note,
       actorUserId,
       actorLabel,
       action: "commented",
-      fromStatus: existing.approval_status,
-      toStatus: existing.approval_status,
+      fromStatus: existing.status,
+      toStatus: existing.status,
       note
     });
     await client.query("COMMIT");

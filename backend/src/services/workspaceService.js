@@ -91,10 +91,25 @@ async function assertWorkspaceMember(userId, workspaceId) {
   return result.rows[0];
 }
 
+async function getWorkspaceForUser(userId) {
+  const result = await query(
+    `SELECT workspace_id FROM workspace_members
+     WHERE user_id = $1
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [userId]
+  );
+  if (result.rows.length === 0) {
+    throw new Error('NO_WORKSPACE');
+  }
+  return result.rows[0].workspace_id;
+}
+
 module.exports = {
   assertWorkspaceMember,
   createWorkspace,
   getCurrentWorkspace,
+  getWorkspaceForUser,
   listWorkspacesForUser,
   switchCurrentWorkspace
 };
