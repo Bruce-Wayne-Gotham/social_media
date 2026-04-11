@@ -13,3 +13,5 @@ worker/node_modules
 .claude/CLAUDE.md
 .claude/vishal-agent-context.md
 vishal-prompt-playbook.md
+.claude/viresh-agent-context-v2.md
+viresh-prompt-playbook-v2.md

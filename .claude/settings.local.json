@@ -3,7 +3,8 @@
     "allow": [
       "Bash(flutter pub:*)",
       "Bash(flutter analyze:*)",
-      "Bash(node -e \"require\\('date-fns'\\); console.log\\('ok'\\)\")"
+      "Bash(node -e \"require\\('date-fns'\\); console.log\\('ok'\\)\")",
+      "Bash(chmod +x /Users/vireshdeshamane/Projects/social_media/scripts/test-post-state-machine.sh)"
     ]
   }
 }

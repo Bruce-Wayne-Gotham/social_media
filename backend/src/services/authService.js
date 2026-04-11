@@ -40,10 +40,10 @@ async function register({ email, password }) {
     );
 
     const clientResult = await client.query(
-      `INSERT INTO clients (workspace_id, name)
-       VALUES ($1, $2)
+      `INSERT INTO clients (workspace_id, name, slug)
+       VALUES ($1, $2, $3)
        RETURNING id`,
-      [workspaceId, "Default Client"]
+      [workspaceId, "Default Client", "default-client"]
     );
     const defaultClientId = clientResult.rows[0].id;
 

@@ -10,7 +10,7 @@ const clientRoutes = require("./routes/clientRoutes");
 const socialAccountRoutes = require("./routes/socialAccountRoutes");
 const socialProfileRoutes = require("./routes/socialProfileRoutes");
 const oauthConnectSessionRoutes = require("./routes/oauthConnectSessionRoutes");
-const postRoutes = require("./routes/postRoutes");
+const postRoutes = require("./routes/posts");
 const approvalMagicLinkRoutes = require("./routes/approvalMagicLinkRoutes");
 const mediaAssetRoutes = require("./routes/mediaAssetRoutes");
 const trackedLinkRoutes = require("./routes/trackedLinkRoutes");
@@ -71,14 +71,21 @@ app.use("/api/billing", billingRoutes);
 app.use((err, _req, res, _next) => {
   console.error(err);
 
+  // Contract-compliant errors from the new API layer.
+  if (err.isApiError) {
+    const body = { error: { code: err.code, message: err.message } };
+    if (err.details != null) body.error.details = err.details;
+    return res.status(err.statusCode).json(body);
+  }
+
   if (err && (err.name === "ZodError" || Array.isArray(err.issues))) {
     const issue = err.issues?.[0];
     const message = issue?.message || "Invalid request payload.";
-    return res.status(400).json({ error: message });
+    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message } });
   }
 
   res.status(err.statusCode || 500).json({
-    error: err.message || "Internal server error"
+    error: { code: "INTERNAL_ERROR", message: err.message || "Internal server error" }
   });
 });
 

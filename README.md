@@ -1,45 +1,52 @@
 # SocialHub
 
-SocialHub is a minimal agency-first SaaS MVP for managing client content workflows across LinkedIn, Instagram, and YouTube. The repository is split into a REST backend, a Redis-backed scheduling worker, and a Next.js frontend.
+Agency-first social media management platform. Agencies manage multiple clients (brands). Each client connects social profiles on Telegram, Reddit, YouTube, and Pinterest. Content is written, AI-adapted per platform, sent for approval, and only published after an explicit human approval.
+
+---
 
 ## Project Structure
 
-```text
+```
 .
-|-- backend
-|-- frontend
-|-- worker
-|-- infra
-|   `-- sql
-|       `-- schema.sql
-`-- docker-compose.yml
+├── backend/          Express 5 REST API (Node.js 20)
+├── frontend/         Next.js frontend
+├── worker/           BullMQ + Redis scheduling worker
+├── infra/
+│   └── sql/
+│       ├── schema.sql          DB source of truth
+│       └── migrations/         numbered migration files
+├── .claude/
+│   ├── api-contract.md         response shapes — both sides must match
+│   └── viresh-agent-context-v2.md
+└── docker-compose.yml
 ```
 
-## Features
+---
 
-- Email/password authentication with JWTs
-- OAuth-style social profile connection flow for LinkedIn, Instagram, and YouTube
-- Workspaces and clients for agency teams
-- Client-scoped media asset uploads with signed one-time upload URLs
-- Post creation with uploaded assets or public media URLs, hashtags, target platforms, and scheduling
-- Safe Mode approvals with comments and audit thread
-- Client approval magic links for external reviewers
-- Client-scoped tracked links with UTM builder, short links, and click reporting
-- Redis queue worker for scheduled publishing
-- Dashboard for post history, approvals inbox, link tracking, and publish status
-- Stripe-backed billing MVP with one free plan, one paid plan, workspace usage counters, and server-side limits
-- Client content strategy settings for Autopilot v1
-- AI-backed Autopilot v1 draft generation into `needs_approval`
-- Internal risk checks for banned terms and missing required disclaimers
+## Stack
+
+| Layer      | Tech                                        |
+|------------|---------------------------------------------|
+| Runtime    | Node.js 20, Express 5                       |
+| Database   | PostgreSQL 16, `pg` (raw SQL, no ORM)       |
+| Queue      | BullMQ + Redis 7                            |
+| Validation | Zod                                         |
+| Auth       | JWT (Bearer token)                          |
+| AI         | OpenAI-compatible via `AI_BASE_URL`         |
+| Frontend   | Next.js                                     |
+
+---
 
 ## Local Setup
 
 ### Prerequisites
 
-- Docker Desktop (Windows/macOS) or Docker Engine (Linux) running and set to **Linux containers**. On Windows ensure WSL 2 is installed/enabled and Docker Desktop is started before running any `docker compose` commands.
-- Docker Compose v2 (`docker compose` ships with recent Docker Desktop). No local Node.js tooling is required because everything runs in containers.
+- Docker Desktop (or Docker Engine on Linux) running
+- Docker Compose v2
 
-1. Copy the example environment files:
+### Steps
+
+1. Copy env files:
 
 ```bash
 cp backend/.env.example backend/.env
@@ -53,116 +60,426 @@ cp worker/.env.example worker/.env
 docker compose up --build
 ```
 
-3. Open:
+3. Services:
+   - Frontend: `http://localhost:3000`
+   - Backend API: `http://localhost:4000/api`
+   - Postgres: `localhost:5432` (db: `socialhub`, user: `socialhub`, pass: `socialhub`)
+   - Redis: `localhost:6379`
 
-- Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:4000/api`
+4. Reset DB after schema changes:
 
-### Troubleshooting
+```bash
+docker compose down -v && docker compose up --build
+```
 
-- Error like `open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified` means the Docker daemon is not running. Start Docker Desktop (or run `sudo systemctl start docker` on Linux) and wait until it reports "Running", then retry `docker compose up --build`.
-- If Docker Desktop is running but the error persists on Windows, open PowerShell and run `wsl --status` to confirm WSL 2 is installed. If it is not, enable WSL 2 and restart Docker Desktop.
+---
 
-### How To Test Approvals + Autopilot + Media Uploads + Link Tracking + Billing (Local)
+## Environment Variables
 
-1. Recreate the database after schema changes: `docker compose down -v`
-2. Start the stack: `docker compose up --build`
-3. Register a user on the frontend and login.
-4. Create or select a client.
-5. Open the Autopilot v1 panel, save a content strategy, then generate draft posts after enabling the provider env vars.
-6. Confirm the generated drafts land in the approvals inbox with `needs_approval` status.
-7. Add a banned term or required disclaimer in the strategy, generate again, and confirm the risk flags appear on the draft detail view when applicable.
-8. Upload a media asset from the composer and confirm it appears in the asset shelf.
-9. Create a manual post using the uploaded asset or a public media URL.
-10. Request approval, add a comment, then approve or reject it from the dashboard.
-11. Generate a client approval magic link and open it in a private window to review the same inbox externally.
-12. Open the link tracking panel, build a tracked link with UTM values, copy the short link, then open `/l/<code>` and confirm the click totals increase.
-13. Add Stripe env vars, open the billing panel, start checkout for the paid plan, and confirm the webhook upgrades the workspace plan and usage counters remain visible in the dashboard.
+```
+# Backend
+DATABASE_URL                          postgres connection string
+REDIS_URL                             redis connection string
+JWT_SECRET                            JWT signing secret
+TOKEN_ENCRYPTION_SECRET               32-byte symmetric key for token encryption at rest
+APP_BASE_URL                          backend public URL (e.g. http://localhost:4000)
+FRONTEND_URL                          frontend public URL (e.g. http://localhost:3000)
+AI_BASE_URL                           OpenAI-compatible provider base URL
+AI_API_KEY                            AI provider key
+AI_MODEL                              model name
+AI_STUB_MODE                          'true' to skip real AI calls and return stubs
+NODE_ENV                              development | production
+PORT                                  default 4000
 
-## API Overview
+# Optional — Autopilot
+AUTOPILOT_AI_ENABLED                  'true' to enable draft generation
+AUTOPILOT_AI_PROVIDER                 provider name
+AUTOPILOT_AI_RATE_LIMIT_WINDOW_SECONDS
+AUTOPILOT_AI_RATE_LIMIT_MAX_DRAFTS
+AUTOPILOT_AI_RATE_LIMIT_MAX_REQUESTS
+AUTOPILOT_REQUEST_TIMEOUT_MS
+OPENAI_API_KEY
+OPENAI_MODEL
+OPENAI_BASE_URL
+OPENAI_PROJECT_ID
+
+# Worker
+DATABASE_URL
+REDIS_URL
+BACKEND_URL                           http://backend:4000 in docker, http://localhost:4000 locally
+```
+
+---
+
+## API Reference
+
+All requests: `Content-Type: application/json`
+Auth: `Authorization: Bearer <token>`
+
+Response envelopes:
+```json
+{ "data": {} }                                          // single object
+{ "data": [], "meta": { "total": 0, "nextCursor": null } }  // list
+{ "error": { "code": "ERROR_CODE", "message": "..." } }     // error
+```
 
 ### Auth
 
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-
-### Posts
-
-- `GET /api/posts`
-- `POST /api/posts`
-- `GET /api/posts/:id`
-- `PATCH /api/posts/:id`
-- `POST /api/posts/:id/request-approval`
-- `POST /api/posts/:id/comments`
-- `POST /api/posts/:id/approve`
-- `POST /api/posts/:id/reject`
+```
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/me
+```
 
 ### Workspaces
 
-- `GET /api/workspaces`
-- `POST /api/workspaces`
-- `GET /api/workspaces/current`
-- `PATCH /api/workspaces/current`
-- `GET /api/workspaces/:workspaceId/clients`
-- `POST /api/workspaces/:workspaceId/clients`
-
-### Billing
-
-- `GET /api/billing/workspaces/:workspaceId`
-- `POST /api/billing/workspaces/:workspaceId/checkout`
-- `POST /api/billing/webhooks/stripe`
+```
+GET  /api/workspaces/current
+GET  /api/workspaces/current/members
+```
 
 ### Clients
 
-- `GET /api/clients/:clientId`
-- `PATCH /api/clients/:clientId`
-- `DELETE /api/clients/:clientId`
-- `POST /api/clients/:clientId/generate-drafts`
-- `GET /api/clients/:clientId/posts`
-- `POST /api/clients/:clientId/posts`
-- `GET /api/clients/:clientId/media-assets`
-- `POST /api/clients/:clientId/media-assets/upload-url`
-- `GET /api/clients/:clientId/tracked-links`
-- `GET /api/clients/:clientId/tracked-links/report`
-- `POST /api/clients/:clientId/tracked-links`
-- `POST /api/clients/:clientId/approval-links`
-- `GET /api/clients/:clientId/social-profiles`
-- `GET /api/clients/:clientId/social-profiles/oauth/:platform/start`
+```
+GET    /api/clients
+POST   /api/clients
+GET    /api/clients/:clientId
+PATCH  /api/clients/:clientId
+DELETE /api/clients/:clientId
+```
 
-### Media Assets
+### Social Profiles
 
-- `PUT /api/media-assets/:assetId/upload?token=...`
-- Static asset URL pattern: `/media/<storage_key>`
+```
+GET    /api/clients/:clientId/social-profiles
+DELETE /api/social-profiles/:profileId
+```
 
-### Tracked Links
+OAuth connect flow:
+```
+GET /api/oauth/:platform/connect?clientId=<id>      (platform: telegram|reddit|youtube|pinterest)
+GET /api/oauth/:platform/callback?code=<code>&state=<state>
+```
 
-- `GET /api/tracked-links/:code/resolve`
-- App short-link path: `/l/<code>`
+### Posts
 
-### Approval Links
+```
+GET    /api/clients/:clientId/posts          ?status&from&to&page&limit
+POST   /api/clients/:clientId/posts
+GET    /api/posts/:postId
+PATCH  /api/posts/:postId
+DELETE /api/posts/:postId
+```
 
-- `GET /api/approval-links/:token`
-- `GET /api/approval-links/:token/posts/:postId`
-- `POST /api/approval-links/:token/posts/:postId/comments`
-- `POST /api/approval-links/:token/posts/:postId/approve`
-- `POST /api/approval-links/:token/posts/:postId/reject`
+### Adaptation
 
-## Notes
+```
+POST   /api/posts/:postId/adapt                     (returns suggestions only — not saved)
+PATCH  /api/posts/:postId/targets/:targetId         (saves adapted content)
+```
 
-- Billing MVP now supports one free plan and one paid Stripe plan with server-side limits for clients, social profiles, posts per month, and AI credits.
-- Dashboard billing counters are workspace-scoped and show current usage for seats, clients, profiles, posts this month, and AI credits this month.
-- Autopilot v1 now calls a real provider behind a clean service boundary with a workspace feature flag, rate limiting, and usage tracking.
-- Generated drafts never auto-publish. They are created directly in the approvals queue and can be disabled via `AUTOPILOT_AI_ENABLED=false` or the workspace feature flag.
-- Publisher modules currently include production-friendly service boundaries and request payload shaping. Replace the placeholder API calls with real platform credentials and endpoints before deploying.
-- Tokens are encrypted at rest using application-level symmetric encryption.
-- Media uploads currently use local backend storage plus signed one-time upload URLs. Swap the storage layer if you later move to S3/GCS.
-- Tracked links currently record a basic click event with referrer and user agent. Expand this if you later need richer attribution.
+### Approvals
 
-## Project Docs
+```
+POST  /api/posts/:postId/submit    { "comment": "..." }
+POST  /api/posts/:postId/approve   { "comment": "..." }
+POST  /api/posts/:postId/reject    { "comment": "..." }
+POST  /api/posts/:postId/recall    { "comment": "..." }
+```
 
-- Current capabilities and limitations: `docs/CURRENT_STATE.md`
-- API reference: `docs/API_REFERENCE.md`
+### Stats & Calendar
 
+```
+GET  /api/clients/:clientId/stats
+GET  /api/clients/:clientId/calendar?from=<date>&to=<date>
+```
 
+### Other
 
+```
+GET  /health
+GET  /l/:code            tracked link redirect
+```
+
+---
+
+## curl Cookbook
+
+> Set `TOKEN` before running these commands:
+> ```bash
+> TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+>   -H "Content-Type: application/json" \
+>   -d '{"email":"you@example.com","password":"yourpassword"}' | jq -r '.data.token')
+> ```
+
+### Auth
+
+**Register**
+```bash
+curl -X POST http://localhost:4000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Viresh Kumar","email":"viresh@example.com","password":"secret123"}'
+```
+
+**Login**
+```bash
+curl -X POST http://localhost:4000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"viresh@example.com","password":"secret123"}'
+```
+
+**Me**
+```bash
+curl http://localhost:4000/api/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Workspaces
+
+**Get current workspace**
+```bash
+curl http://localhost:4000/api/workspaces/current \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**List members**
+```bash
+curl http://localhost:4000/api/workspaces/current/members \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Clients
+
+**List clients**
+```bash
+curl http://localhost:4000/api/clients \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Create client**
+```bash
+curl -X POST http://localhost:4000/api/clients \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Nike India","brandNotes":"Inspirational tone. Never mention competitors."}'
+```
+
+**Get client**
+```bash
+curl http://localhost:4000/api/clients/<clientId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Update client**
+```bash
+curl -X PATCH http://localhost:4000/api/clients/<clientId> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"brandNotes":"Updated brand notes."}'
+```
+
+**Delete client**
+```bash
+curl -X DELETE http://localhost:4000/api/clients/<clientId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Social Profiles
+
+**List profiles for a client**
+```bash
+curl http://localhost:4000/api/clients/<clientId>/social-profiles \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Delete a profile**
+```bash
+curl -X DELETE http://localhost:4000/api/social-profiles/<profileId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Posts
+
+**List posts for a client**
+```bash
+curl "http://localhost:4000/api/clients/<clientId>/posts?status=draft&limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Create post**
+```bash
+curl -X POST http://localhost:4000/api/clients/<clientId>/posts \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "originalContent": "We just launched our new running shoe.",
+    "scheduledAt": "2026-04-06T09:00:00.000Z",
+    "publishImmediately": false,
+    "targetProfileIds": ["<profileId1>", "<profileId2>"]
+  }'
+```
+
+**Get post**
+```bash
+curl http://localhost:4000/api/posts/<postId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Update post (draft only)**
+```bash
+curl -X PATCH http://localhost:4000/api/posts/<postId> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"originalContent":"Updated content."}'
+```
+
+**Delete post**
+```bash
+curl -X DELETE http://localhost:4000/api/posts/<postId> \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Adaptation
+
+**Get AI adaptations (not saved)**
+```bash
+curl -X POST http://localhost:4000/api/posts/<postId>/adapt \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Save adaptation to a target**
+```bash
+curl -X PATCH http://localhost:4000/api/posts/<postId>/targets/<targetId> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "adaptedContent": "Our new running shoe is here. Built for speed. #Nike #Running",
+    "adaptedTitle": "Nike Launches New Running Shoe"
+  }'
+```
+
+---
+
+### Approvals
+
+**Submit for approval**
+```bash
+curl -X POST http://localhost:4000/api/posts/<postId>/submit \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"comment":"Ready for review."}'
+```
+
+**Approve**
+```bash
+curl -X POST http://localhost:4000/api/posts/<postId>/approve \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"comment":"Looks good."}'
+```
+
+**Reject**
+```bash
+curl -X POST http://localhost:4000/api/posts/<postId>/reject \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"comment":"Needs revision."}'
+```
+
+**Recall (back to draft)**
+```bash
+curl -X POST http://localhost:4000/api/posts/<postId>/recall \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+---
+
+### Stats & Calendar
+
+**Client stats**
+```bash
+curl http://localhost:4000/api/clients/<clientId>/stats \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Calendar (max 90-day range)**
+```bash
+curl "http://localhost:4000/api/clients/<clientId>/calendar?from=2026-04-01&to=2026-04-30" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+### Health Check
+
+```bash
+curl http://localhost:4000/health
+```
+
+---
+
+## Post State Machine
+
+```
+draft
+  └─[submit]──► needs_approval
+                  ├─[approve]──► approved ──► scheduled   (if scheduledAt set)
+                  │                       └─► publishing  (if publishImmediately)
+                  ├─[reject]───► draft
+                  └─[recall]───► draft
+
+approved ──► scheduled ──► publishing ──► published
+                                      └─► failed  (per target, 3 retries)
+```
+
+Rules:
+1. Cannot approve/schedule without going through `needs_approval` first.
+2. Cannot submit unless ALL targets have non-null `adaptedContent`.
+3. Only `owner` / `admin` / `client_approver` roles can approve or reject.
+4. Every transition writes an `approval_log` row.
+5. Worker checks `externalPostId` before publishing (idempotency guard).
+
+---
+
+## Error Codes
+
+| Code                      | HTTP |
+|---------------------------|------|
+| AUTH_REQUIRED             | 401  |
+| FORBIDDEN                 | 403  |
+| CLIENT_NOT_FOUND          | 404  |
+| POST_NOT_FOUND            | 404  |
+| SOCIAL_PROFILE_NOT_FOUND  | 404  |
+| CLIENT_NAME_TAKEN         | 409  |
+| POST_NOT_EDITABLE         | 409  |
+| POST_NOT_SUBMITTABLE      | 409  |
+| INVALID_TRANSITION        | 409  |
+| ADAPTED_TITLE_REQUIRED    | 422  |
+| VALIDATION_ERROR          | 422  |
+| CALENDAR_RANGE_TOO_LARGE  | 422  |
+| RATE_LIMITED              | 429  |
+| INTERNAL_ERROR            | 500  |
+
+---
+
+## Development Notes
+
+- Raw SQL only — parameterised queries (`$1`, `$2`). No ORM, no interpolation.
+- Safe Mode is sacred — publishing without `status = 'approved'` is never allowed.
+- All status changes go through `post-state-machine.service.js`. No direct `UPDATE status` elsewhere.
+- Every multi-table write is a transaction.
+- Tokens are encrypted at rest with application-level symmetric encryption.
+- AI calls can be stubbed with `AI_STUB_MODE=true`.
+- Autopilot-generated drafts are always created in `needs_approval` — they never auto-publish.

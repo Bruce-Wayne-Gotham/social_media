@@ -1,5 +1,5 @@
 const { query } = require("../config/db");
-const { httpError } = require("../utils/httpError");
+const { Errors } = require("../utils/ApiError");
 
 async function getWorkspaceMemberRecord(userId, workspaceId) {
   const result = await query(
@@ -34,13 +34,17 @@ async function getClientAccessRecord(userId, clientId) {
 }
 
 async function assertClientAccess(userId, clientId) {
-  const access = await getClientAccessRecord(userId, clientId);
-  if (!access) {
-    throw httpError("Client not found", 404);
-  }
+  // Step 1: does the client exist at all? → 404 if not
+  const { rows: clientRows } = await query(`SELECT id FROM clients WHERE id = $1`, [clientId]);
+  if (!clientRows[0]) throw Errors.clientNotFound();
 
+  // Step 2: is the user a member of the owning workspace? → 403 if not
+  const access = await getClientAccessRecord(userId, clientId);
+  if (!access) throw Errors.forbidden();
+
+  // Step 3: client_approver must be explicitly assigned to this client
   if (access.role === "client_approver" && !access.is_assigned) {
-    throw httpError("Client not found", 404);
+    throw Errors.forbidden();
   }
 
   return access;

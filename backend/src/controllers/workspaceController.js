@@ -43,8 +43,8 @@ async function switchCurrentWorkspace(req, res, next) {
 
 async function listClients(req, res, next) {
   try {
-    const clients = await clientService.listClients(req.user.sub, req.params.workspaceId);
-    res.json({ clients });
+    const result = await clientService.listClients(req.user.sub, req.params.workspaceId, req.query);
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -54,7 +54,7 @@ async function createClient(req, res, next) {
   try {
     const payload = createClientSchema.parse(req.body);
     const client = await clientService.createClient(req.user.sub, req.params.workspaceId, payload);
-    res.status(201).json({ client });
+    res.status(201).json({ data: client });
   } catch (error) {
     next(error);
   }

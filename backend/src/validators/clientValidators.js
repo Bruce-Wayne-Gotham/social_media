@@ -20,7 +20,8 @@ const listSchema = z.preprocess(
 );
 
 const createClientSchema = z.object({
-  name: z.string().min(1).max(120)
+  name:       z.string().min(1).max(120),
+  brandNotes: z.string().max(2000).optional().nullable(),
 });
 
 const clientStrategySchema = z.object({
@@ -35,7 +36,9 @@ const clientStrategySchema = z.object({
 });
 
 const updateClientSchema = clientStrategySchema.extend({
-  name: z.string().min(1).max(120).optional()
+  name:       z.string().min(1).max(120).optional(),
+  brandNotes: z.string().max(2000).optional().nullable(),
+  logoUrl:    z.string().url().max(500).optional().nullable(),
 });
 
 const generateDraftsSchema = z.object({

@@ -2,8 +2,27 @@ const { query } = require("../config/db");
 const { encrypt } = require("../utils/crypto");
 const { normalizePlatform } = require("../utils/platforms");
 const { httpError } = require("../utils/httpError");
+const { Errors } = require("../utils/ApiError");
 const { assertClientAccess } = require("./accessService");
 const { assertWithinWorkspacePlanLimit, countAdditionalProfilesForClient } = require("./billingService");
+
+// Contract-shaped SocialProfile formatter.
+function fmtProfile(row) {
+  return {
+    id:              row.id,
+    clientId:        row.client_id,
+    platform:        row.platform,
+    displayName:     row.display_name,
+    profileImageUrl: row.profile_image_url ?? null,
+    providerId:      row.provider_id,
+    providerType:    row.provider_type,
+    providerMeta:    row.provider_meta,
+    isConnected:     row.is_connected,
+    connectedAt:     row.connected_at  ?? null,
+    lastSyncedAt:    row.last_synced_at ?? null,
+    createdAt:       row.created_at,
+  };
+}
 
 async function getDefaultClientIdForUser(userId) {
   const result = await query("SELECT default_client_id FROM users WHERE id = $1", [userId]);
@@ -83,34 +102,39 @@ async function getSocialAccountsByClient(userId, clientId) {
   await assertClientAccess(userId, clientId);
 
   const result = await query(
-    `SELECT id, client_id, platform, provider_account_id, display_name, expiry, created_at, updated_at
+    `SELECT id, client_id, platform, display_name, profile_image_url,
+            provider_id, provider_type, provider_meta, is_connected,
+            connected_at, last_synced_at, created_at
      FROM social_profiles
      WHERE client_id = $1
-     ORDER BY platform ASC, updated_at DESC`,
+     ORDER BY platform ASC, created_at DESC`,
     [clientId]
   );
-  return result.rows;
+  return result.rows.map(fmtProfile);
 }
 
 async function disconnectSocialAccount(userId, socialAccountId) {
+  // Verify the profile exists and the user has access to its client.
+  const { rows: ownerRows } = await query(
+    `SELECT client_id FROM social_profiles WHERE id = $1`,
+    [socialAccountId]
+  );
+  if (!ownerRows[0]) throw Errors.socialProfileNotFound();
+  await assertClientAccess(userId, ownerRows[0].client_id);
+
+  // Soft-disconnect: set is_connected=false and clear tokens so they cannot be
+  // used, but keep the row so history and settings are preserved.
   const result = await query(
-    `DELETE FROM social_profiles sa
-     USING clients c, workspace_members wm
-     LEFT JOIN client_approver_assignments ca ON ca.client_id = c.id AND ca.user_id = wm.user_id
-     WHERE sa.id = $1
-       AND sa.client_id = c.id
-       AND wm.workspace_id = c.workspace_id
-       AND wm.user_id = $2
-       AND (wm.role <> 'client_approver' OR ca.client_id IS NOT NULL)
-     RETURNING sa.id`,
-    [socialAccountId, userId]
+    `UPDATE social_profiles
+     SET is_connected  = FALSE,
+         access_token  = '',
+         refresh_token = NULL
+     WHERE id = $1
+     RETURNING id`,
+    [socialAccountId]
   );
 
-  if (result.rowCount === 0) {
-    throw httpError("Social profile not found", 404);
-  }
-
-  return { ok: true };
+  if (result.rowCount === 0) throw Errors.socialProfileNotFound();
 }
 
 module.exports = {

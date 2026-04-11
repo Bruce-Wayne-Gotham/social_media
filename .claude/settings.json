@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(node --check src/services/ai.service.js)",
+      "Bash(node --check src/services/adaptation.service.js)",
+      "Bash(node --check src/controllers/posts.controller.js)",
+      "Bash(node --check src/routes/posts.js)",
+      "Bash(/usr/local/bin/node --version)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/vireshdeshamane/**)",
+      "Read(//usr/bin/**)",
+      "Bash(command -v node)",
+      "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"viresh@test.com\",\"password\":\"secret123\"}')"
+    ]
+  }
+}
